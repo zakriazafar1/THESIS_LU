@@ -21,28 +21,13 @@ Hypnogram (verplicht):
     0 = Wake, 1 = N1, 2 = N2, 3 = N3/SWS, 5 = REM
   Nachten zonder hypnogram worden overgeslagen.
 
-  Het hypnogram wordt gebruikt voor:
-    - Gate A: wake epochs (score=0) uitsluiten als onset-locatie
-    - Gate B: post-event epoch checken op wake (score=0)
-    - Elke geaccepteerd event krijgt de bijbehorende slaapfase als label
-
-Pipeline per nacht:
-  1. Hypnogram laden — geen hypnogram = skip
-  2. Losse EDF bestanden laden en samenvoegen in geheugen
-  3. Preprocessing: DC removal, notch 50 Hz, bandpass EEG + EMG, resample 128 Hz
-  4. Band-envelopes (theta / alpha / sigma / beta)
-  5. Lokale baseline + ratio (90 s causale rollende mediaan)
-  6. Candidate activation mask
-  7. Micro-arousal gates (A: wake epoch, B: post-event wake epoch, C: REM EMG)
-  8. Event boundaries + DataFrame → CSV
-
 Output:
   EVENTS_DIR / GROUP / subject_id / candidate_events_{subject_id}_{night_id}.csv
 
 Gebruik:
-  python phase9_from_raw.py             # volledige batch
-  python phase9_from_raw.py --limit 3   # testen op 3 nachten
-  python phase9_from_raw.py --jobs 4    # 4 parallelle workers
+  python phase5to8-new.py             # volledige batch
+  python phase5to8-new.py --limit 3   # testen op 3 nachten
+  python phase5to8-new.py --jobs 4    # 4 parallelle workers
 =============================================================================
 """
 
@@ -72,16 +57,11 @@ except ImportError:
 # SECTIE 1 — CONFIGURATIE
 # =============================================================================
 
-# ── Mappen ────────────────────────────────────────────────────────────────────
 RAW_ROOT   = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
-GROUPS     = ["NSR", "Prezens", "SAV"]   # de drie te doorzoeken groepsmappen
+GROUPS     = ["NSR", "Prezens", "SAV"]
 EVENTS_DIR = Path(r"C:\Users\zafar\Documents\THESIS_OUTPUTS\2_candidate_events")
 EVENTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── Kanaalnamen intern (wat Phase 9 verwacht) → EDF bestandsnaam ──────────────
-# EEG L en R worden twee keer ingeladen:
-#   psg-lp  → krijgt EEG bandpass (0.1–35 Hz)
-#   psg-emg → krijgt EMG bandpass (10–100 Hz)
 CHANNEL_FILES = {
     "EEG L psg-lp":  "EEG L",
     "EEG R psg-lp":  "EEG R",
@@ -101,7 +81,6 @@ EMG_CH   = [CH_EMG_L, CH_EMG_R]
 MOV_CH   = ["dX", "dY", "dZ"]
 ALL_CH   = EEG_CH + EMG_CH + MOV_CH
 
-# ── Preprocessing parameters ──────────────────────────────────────────────────
 TARGET_SFREQ          = 128
 NOTCH_HZ              = 50.0
 EEG_L_FREQ            = 0.1
@@ -110,7 +89,6 @@ EMG_L_FREQ            = 10.0
 EMG_H_FREQ            = 100.0
 MOVEMENT_THRESHOLD_UV = 1000.0
 
-# ── Frequentiebanden ──────────────────────────────────────────────────────────
 BANDS = {
     "theta": (4.0,  7.0),
     "alpha": (8.0,  12.0),
@@ -118,39 +96,34 @@ BANDS = {
     "beta":  (16.0, 30.0),
 }
 
-# ── Signaalverwerking ─────────────────────────────────────────────────────────
 SMOOTH_SEC           = 0.5
-BASELINE_SEC         = 90.0    # Popovic gebruikte 90 s
+BASELINE_SEC         = 90.0
 ACTIVATION_THRESHOLD = 2.0
 SPINDLE_THRESHOLD    = 2.0
 MERGE_GAP_SEC        = 1.0
 MIN_DUR_SEC          = 1.0
 MAX_DUR_SEC          = 15.0
 
-# ── Wake mask ─────────────────────────────────────────────────────────────────
-WAKE_THRESHOLD_MULT  = 2.5
-WAKE_MIN_DUR_SEC     = 20.0
-
-# ── Post-event wake check ─────────────────────────────────────────────────────
-POST_EVENT_CHECK_SEC = 15.0
-POST_EVENT_WAKE_FRAC = 0.5
-
-# ── REM gate ──────────────────────────────────────────────────────────────────
+POST_EVENT_CHECK_SEC     = 15.0
+POST_EVENT_WAKE_FRAC     = 0.5
 REM_EMG_SUPPRESSION_FRAC = 0.8
 
-N_JOBS = -1
-
-# ── Hypnogram ─────────────────────────────────────────────────────────────────
-# Rechtschaffen & Kales codering
+N_JOBS     = -1
 STAGE_WAKE = 0
-STAGE_REM  = 5   # R&K gebruikt 5 voor REM, niet 4 (AASM)
-EPOCH_SEC  = 30  # standaard PSG epoch lengte in seconden
+STAGE_REM  = 5
+EPOCH_SEC  = 30
 
-# Bestandsstructuur hypnogram:
-#   RAW_ROOT / GROUP / subject_id / stem / sleepArchitecture / stem.csv
-# Voorbeeld:
-#   .../NSR/bnbd_nsr_03554/bnbd_nsr_03554_T0_N1/sleepArchitecture/
-#       bnbd_nsr_03554_T0_N1.csv
+# ── Arousal score gewichten ───────────────────────────────────────────────────
+# Gewogen gemiddelde van 6 signaalkenmerken (0–1 elk).
+# Gewichten worden automatisch genormaliseerd.
+AROUSAL_SCORE_WEIGHTS = {
+    "alpha_ratio":      0.25,
+    "beta_ratio":       0.20,
+    "bilateral":        0.15,
+    "emg_consistency":  0.15,
+    "sigma_suppress":   0.10,
+    "signal_stability": 0.15,
+}
 
 
 # =============================================================================
@@ -158,18 +131,6 @@ EPOCH_SEC  = 30  # standaard PSG epoch lengte in seconden
 # =============================================================================
 
 def find_night_dirs(raw_root: Path) -> list:
-    """
-    Zoekt alle *_edf mappen onder de drie groepsmappen (NSR, Prezens, SAV).
-
-    Structuur:
-      raw_root / GROUP / bnbd_xxx_XXXXX / bnbd_xxx_XXXXX_T0_N1 /
-          bnbd_xxx_XXXXX_T0_N1_edf /    ← dit zoeken we
-              EEG L.edf
-              EEG R.edf
-              ...
-
-    Geeft gesorteerde lijst van *_edf Path objecten.
-    """
     edf_dirs = []
     for group in GROUPS:
         group_path = raw_root / group
@@ -183,21 +144,12 @@ def find_night_dirs(raw_root: Path) -> list:
 
 
 def parse_ids(edf_dir: Path) -> dict:
-    """
-    Parseert IDs uit de naam van de *_edf map.
-
-    .../NSR/bnbd_nsr_01272/bnbd_nsr_01272_T0_N2/bnbd_nsr_01272_T0_N2_edf
-    → subject_id = bnbd_nsr_01272
-    → night_id   = T0_N2
-    → group      = NSR
-    → stem       = bnbd_nsr_01272_T0_N2
-    """
-    stem  = edf_dir.name.replace("_edf", "")   # "bnbd_nsr_01272_T0_N2"
-    parts = stem.split("_")                     # ["bnbd","nsr","01272","T0","N2"]
+    stem  = edf_dir.name.replace("_edf", "")
+    parts = stem.split("_")
     return {
-        "subject_id": "_".join(parts[:3]),      # bnbd_nsr_01272
-        "night_id":   "_".join(parts[3:]),      # T0_N2
-        "group":      parts[1].upper(),         # NSR
+        "subject_id": "_".join(parts[:3]),
+        "night_id":   "_".join(parts[3:]),
+        "group":      parts[1].upper(),
         "stem":       stem,
     }
 
@@ -212,16 +164,6 @@ def get_csv_path(ids: dict) -> Path:
 
 
 def get_hypnogram_path(ids: dict) -> Path:
-    """
-    Berekent het hypnogram pad.
-
-    Structuur:
-      RAW_ROOT / GROUP / subject_id / stem / sleepArchitecture / stem.csv
-
-    Voorbeeld:
-      .../NSR/bnbd_nsr_01272/bnbd_nsr_01272_T0_N2/
-          sleepArchitecture/bnbd_nsr_01272_T0_N2.csv
-    """
     return (
         RAW_ROOT
         / ids["group"]
@@ -234,51 +176,71 @@ def get_hypnogram_path(ids: dict) -> Path:
 
 # =============================================================================
 # SECTIE 3 — LADEN EN PREPROCESSING
-# Losse EDF bestanden laden, samenvoegen in geheugen, preprocessing toepassen.
-# Geeft signals dict terug: kanaalnaam → 1D numpy array (µV), plus sfreq.
+# Robust: slechte/ontbrekende kanalen worden per kanaal afgevangen zodat
+# één corrupt bestand niet de hele nacht laat falen.
 # =============================================================================
 
-def load_and_preprocess(night_dir: Path) -> dict:
+def load_and_preprocess(edf_dir: Path) -> dict:
     """
-    Laadt losse EDF kanaalbestanden direct uit de nacht-map en past
-    preprocessing toe.
-
-    Stappen:
-      1. Elk kanaalbestand afzonderlijk laden
-      2. Samenvoegen tot één MNE RawArray in geheugen
-      3. DC removal, notch 50 Hz, bandpass EEG + EMG, resample 128 Hz
-      4. Numpy arrays teruggeven als signals dict
-
-    Returns
-    -------
-    dict: kanaalnaam → 1D numpy array (µV), plus "sfreq" key
+    Laadt losse EDF kanaalbestanden en past preprocessing toe.
+    Elk kanaalbestand wordt individueel geladen met foutafvang zodat
+    een corrupt of ontbrekend bestand de nacht niet volledig laat falen.
+    Vereist: EEG L.edf en EEG R.edf moeten aanwezig en leesbaar zijn.
     """
-    loaded    = {}
+    loaded    = {}   # raw_filename → (data µV, sfreq)
     sfreq_ref = None
+    load_errors = []
 
-    # ── Elk uniek EDF bestand één keer laden ─────────────────────────────────
     unique_files = set(CHANNEL_FILES.values())
     for raw_file in unique_files:
-        edf_path = night_dir / f"{raw_file}.edf"
+        edf_path = edf_dir / f"{raw_file}.edf"
         if not edf_path.exists():
+            load_errors.append(f"{raw_file}.edf: bestand niet gevonden")
             continue
-        raw   = mne.io.read_raw_edf(edf_path, preload=True, verbose=False)
-        data  = raw.get_data()[0] * 1e6   # V → µV
-        sfreq = raw.info["sfreq"]
-        loaded[raw_file] = (data, sfreq)
-        if sfreq_ref is None:
-            sfreq_ref = sfreq
+        try:
+            raw   = mne.io.read_raw_edf(edf_path, preload=True, verbose=False)
+            # Controleer dat het bestand minstens 1 kanaal heeft
+            if raw.n_times == 0:
+                load_errors.append(f"{raw_file}.edf: leeg bestand (0 samples)")
+                continue
+            data  = raw.get_data()[0] * 1e6   # V → µV
+            sfreq = raw.info["sfreq"]
+            loaded[raw_file] = (data, sfreq)
+            if sfreq_ref is None:
+                sfreq_ref = sfreq
+        except Exception as e:
+            load_errors.append(f"{raw_file}.edf: {e}")
 
-    if not loaded:
-        raise ValueError(f"Geen kanaalbestanden gevonden in {night_dir}")
+    # EEG L en R zijn verplicht — faal als die ontbreken
+    for required in ["EEG L", "EEG R"]:
+        if required not in loaded:
+            missing_info = "\n".join(load_errors)
+            raise ValueError(
+                f"Verplicht kanaal '{required}' kon niet geladen worden "
+                f"uit {edf_dir}.\nLaadfouten:\n{missing_info}"
+            )
 
-    # ── Kanaalnamen toewijzen + lengtes gelijkschakelen ───────────────────────
+    # ── Kanaalnamen toewijzen ─────────────────────────────────────────────────
     arrays = {}
     for ch_name, raw_file in CHANNEL_FILES.items():
         if raw_file in loaded:
             arrays[ch_name] = loaded[raw_file][0].copy()
 
+    # ── Lengtes gelijkschakelen (EDF bestanden kunnen iets afwijken) ──────────
+    if not arrays:
+        raise ValueError(f"Geen bruikbare kanalen in {edf_dir}")
+
     min_len = min(len(d) for d in arrays.values())
+
+    # Controleer of het signaal lang genoeg is voor de filters
+    # Butterworth orde 4 heeft ~3x padlen nodig: min ~1000 samples bij 128 Hz
+    min_required = max(1000, int(10 * (sfreq_ref or TARGET_SFREQ)))
+    if min_len < min_required:
+        raise ValueError(
+            f"Signaal te kort voor filtering: {min_len} samples "
+            f"(minimum {min_required}). Nacht waarschijnlijk incompleet."
+        )
+
     for k in arrays:
         arrays[k] = arrays[k][:min_len]
 
@@ -286,11 +248,11 @@ def load_and_preprocess(night_dir: Path) -> dict:
     ch_names = list(arrays.keys())
     ch_types = []
     for name in ch_names:
-        if "psg-lp"  in name: ch_types.append("eeg")
+        if   "psg-lp"  in name: ch_types.append("eeg")
         elif "psg-emg" in name: ch_types.append("emg")
-        else: ch_types.append("misc")
+        else:                   ch_types.append("misc")
 
-    data_mx = np.stack(list(arrays.values())) * 1e-6   # µV → V voor MNE
+    data_mx = np.stack(list(arrays.values())) * 1e-6   # µV → V
     info    = mne.create_info(ch_names=ch_names, sfreq=sfreq_ref,
                                ch_types=ch_types, verbose=False)
     raw     = mne.io.RawArray(data_mx, info, verbose=False)
@@ -300,14 +262,12 @@ def load_and_preprocess(night_dir: Path) -> dict:
     emg_chs    = [ch for ch in raw.ch_names if "psg-emg" in ch]
     mov_chs    = [ch for ch in raw.ch_names if ch in MOV_CH]
 
-    # ── Preprocessing ─────────────────────────────────────────────────────────
-
-    # 1. DC removal EEG + EMG
+    # 1. DC removal
     for ch in eeg_lp_chs + emg_chs:
         idx = raw.ch_names.index(ch)
         raw._data[idx] -= np.mean(raw._data[idx])
 
-    # 2. Notch 50 Hz op EEG
+    # 2. Notch 50 Hz
     if sfreq_ref > NOTCH_HZ * 2 and eeg_lp_chs:
         raw.notch_filter(freqs=NOTCH_HZ, picks=eeg_lp_chs, verbose=False)
 
@@ -332,7 +292,6 @@ def load_and_preprocess(night_dir: Path) -> dict:
     if sfreq_ref != TARGET_SFREQ:
         raw.resample(TARGET_SFREQ, verbose=False)
 
-    # ── Teruggeven als signals dict (µV) ──────────────────────────────────────
     signals = {ch: raw.get_data(picks=ch)[0] * 1e6
                for ch in raw.ch_names}
     signals["sfreq"] = TARGET_SFREQ
@@ -372,23 +331,12 @@ def remove_movement_artifacts(signals: dict,
 
 def bandpass_filter(signal: np.ndarray, lo: float, hi: float,
                     sfreq: float = TARGET_SFREQ) -> np.ndarray:
-    """
-    Butterworth bandpass filter via scipy sosfiltfilt.
-    Sneller dan mne.filter.filter_data voor herhaalde korte-band oproepen
-    omdat er geen FIR-kernel overhead is.
-    Orde 4 is voldoende voor alle slaapbanden (theta/alpha/sigma/beta).
-    """
-    nyq  = sfreq / 2.0
-    sos  = butter(4, [lo / nyq, hi / nyq], btype="band", output="sos")
+    nyq = sfreq / 2.0
+    sos = butter(4, [lo / nyq, hi / nyq], btype="band", output="sos")
     return sosfiltfilt(sos, signal).astype(np.float32)
 
 
 def compute_envelope(signal: np.ndarray) -> np.ndarray:
-    """
-    Hilbert envelope met next-fast-len optimalisatie.
-    scipy.fft.next_fast_len zorgt dat de FFT altijd op een efficient getal werkt
-    (macht van 2, 3, 5) — vermijdt langzame priemgetal-lengtes.
-    """
     n      = next_fast_len(len(signal))
     result = np.abs(hilbert(signal, N=n))[:len(signal)]
     return result.astype(np.float32)
@@ -434,16 +382,8 @@ def compute_emg_envelopes(signals: dict,
 
 def _rolling_median_causal(arr: np.ndarray, sfreq: float,
                             window_s: float) -> np.ndarray:
-    """
-    Causale rollende mediaan.
-    Gebruikt bottleneck.move_median als beschikbaar (10-50x sneller dan pandas).
-    Valt terug op pandas als bottleneck niet geïnstalleerd is.
-
-    pip install bottleneck   ← sterk aanbevolen voor snelheid
-    """
     w = max(1, int(window_s * sfreq))
     if _HAS_BOTTLENECK:
-        # bn.move_median is causaal (kijkt alleen terug) en C-geïmplementeerd
         result = bn.move_median(arr.astype(np.float64), window=w, min_count=1)
     else:
         result = (pd.Series(arr.astype(np.float64))
@@ -497,59 +437,18 @@ def compute_emg_baseline(emg_envelopes: dict,
 
 # =============================================================================
 # SECTIE 7 — HYPNOGRAM LADEN + WAKE MASK
-#
-# Het hypnogram (human-rated, R&K codering) wordt gebruikt als wake mask:
-#   - Elk epoch met score 0 (Wake) → alle samples in dat epoch = wake
-#   - De wake mask is een boolean array op sample-niveau
-#
-# Voordeel t.o.v. signaal-afgeleide wake mask:
-#   - Menselijke scorer identificeert wake betrouwbaarder dan het algoritme
-#   - Geen risico op vals-positieve wake-classificatie bij hoge-beta slapers
-#     (veel voorkomend bij angst/PTSD in de BNBD populatie)
-#
-# Geen hypnogram aanwezig → nacht wordt overgeslagen (optie A).
 # =============================================================================
 
 def load_hypnogram(hyp_path: Path) -> np.ndarray:
-    """
-    Laadt het hypnogram CSV bestand.
-
-    Verwacht één kolom zonder header, één score per rij (30-s epoch).
-    Rechtschaffen & Kales codering: 0=Wake, 1=N1, 2=N2, 3=N3, 5=REM.
-
-    Returns
-    -------
-    np.ndarray van integers, lengte = aantal epochs
-    """
     df = pd.read_csv(hyp_path, header=None)
     return df.iloc[:, 0].values.astype(int)
 
 
-def hypnogram_to_wake_mask(hypnogram: np.ndarray,
-                            n_samples: int,
+def hypnogram_to_wake_mask(hypnogram: np.ndarray, n_samples: int,
                             sfreq: float = TARGET_SFREQ,
                             epoch_sec: int = EPOCH_SEC) -> np.ndarray:
-    """
-    Zet een epoch-niveau hypnogram om naar een sample-niveau wake mask.
-
-    Elk epoch van epoch_sec seconden wordt uitgebreid naar
-    epoch_sec × sfreq samples. Wake epoch (score=0) → True.
-
-    Parameters
-    ----------
-    hypnogram : array van R&K scores per epoch
-    n_samples : totaal aantal samples in het EEG signaal
-                (voor afstemming als hypnogram iets korter/langer is)
-    sfreq     : sample frequentie
-    epoch_sec : epoch duur in seconden (standaard 30)
-
-    Returns
-    -------
-    boolean array, lengte = n_samples, True = wake sample
-    """
     samples_per_epoch = int(epoch_sec * sfreq)
     wake_mask         = np.zeros(n_samples, dtype=bool)
-
     for epoch_idx, score in enumerate(hypnogram):
         start = epoch_idx * samples_per_epoch
         end   = min(start + samples_per_epoch, n_samples)
@@ -557,32 +456,23 @@ def hypnogram_to_wake_mask(hypnogram: np.ndarray,
             break
         if score == STAGE_WAKE:
             wake_mask[start:end] = True
-
     return wake_mask
 
 
-def hypnogram_to_stage_array(hypnogram: np.ndarray,
-                              n_samples: int,
+def hypnogram_to_stage_array(hypnogram: np.ndarray, n_samples: int,
                               sfreq: float = TARGET_SFREQ,
                               epoch_sec: int = EPOCH_SEC) -> np.ndarray:
-    """
-    Zet hypnogram om naar sample-niveau stage array (R&K integer per sample).
-    Wordt gebruikt om elk gedetecteerd event een slaapfase label te geven.
-    """
     samples_per_epoch = int(epoch_sec * sfreq)
-    stage_array       = np.full(n_samples, -1, dtype=int)  # -1 = onbekend
-
+    stage_array       = np.full(n_samples, -1, dtype=int)
     for epoch_idx, score in enumerate(hypnogram):
         start = epoch_idx * samples_per_epoch
         end   = min(start + samples_per_epoch, n_samples)
         if start >= n_samples:
             break
         stage_array[start:end] = score
-
     return stage_array
 
 
-# R&K stage labels voor in de output DataFrame
 RK_LABELS = {0: "Wake", 1: "N1", 2: "N2", 3: "N3", 5: "REM", -1: "Unscored"}
 
 
@@ -685,6 +575,16 @@ def apply_duration_filter(events, sfreq=TARGET_SFREQ):
 def apply_microarousal_gates(events, wake_mask,
                               emg_envelopes, emg_baselines,
                               sfreq=TARGET_SFREQ):
+    """
+    Tags every event with a gate label instead of filtering them out.
+    All events are returned so you can inspect and filter yourself.
+
+    gate values:
+      'accepted' — passed all gates, this is a microarousal
+      'A'        — started during a wake epoch
+      'B'        — person woke up in the 15 s after the event
+      'C'        — REM-like window without EMG activation
+    """
     post_s  = int(POST_EVENT_CHECK_SEC * sfreq)
     n       = len(wake_mask)
     tagged  = []
@@ -718,37 +618,154 @@ def apply_microarousal_gates(events, wake_mask,
 
     return tagged, counts
 
+
+# =============================================================================
+# SECTIE 9b — AROUSAL SCORE
+#
+# Composiet score (0.0–1.0) per event op basis van 6 signaalkenmerken.
+# Geen ML, geen labels. Gebaseerd op hetzelfde principe als YASA spindle
+# detectie (meerdere drempels combineren).
+#
+# 1. alpha_ratio   : sigmoid van gem. alpha ratio tijdens event (center=2×)
+#                    ratio=1× → 0.18 | ratio=2× → 0.5 | ratio=4× → 0.95
+#                    Meest gevalideerde EEG marker van NREM arousal.
+#
+# 2. beta_ratio    : zelfde sigmoid voor beta (18–30 Hz)
+#                    Onafhankelijk van alpha — relevant bij PTSD/angst
+#                    waar bèta ook verhoogd is bij hyperarousal.
+#
+# 3. bilateral     : fractie event waarbij F7 én F8 tegelijk actief waren
+#                    Echte arousals zijn bilateraal; unilateraal = vaker artefact.
+#
+# 4. emg_consistency: fractie samples met EMG > baseline
+#                    Spiertonus neemt kort toe bij echte arousal.
+#                    Onafhankelijke niet-EEG dimensie.
+#
+# 5. sigma_suppress: 1 − sigmoid(sigma_ratio, center=1.0)
+#                    Hoog als sigma DAALDE → spindles gestopt = arousal.
+#                    Inversere relatie met spindle_score.
+#
+# 6. signal_stability: fractie samples in event boven detectiedrempel
+#                    Duur-agnostisch kwaliteitsmaat.
+#                    2 s volledig verhoogd = 15 s volledig verhoogd.
+# =============================================================================
+
+def _sigmoid(x, center, steepness=1.5):
+    """Sigmoid gecentreerd op 'center'. Mapt ratio-waarden naar [0, 1]."""
+    return 1.0 / (1.0 + np.exp(-steepness * (x - center)))
+
+
+def compute_arousal_score(start: int, end: int,
+                           envelopes: dict, baselines: dict,
+                           emg_envelopes: dict, emg_baselines: dict,
+                           ratios: dict, channel_masks: dict,
+                           sfreq: float = TARGET_SFREQ) -> dict:
+    """
+    Berekent de 6 component scores en de gewogen arousal_score voor één event.
+    Returns dict met keys: arousal_score, alpha_ratio, beta_ratio,
+    bilateral, emg_consistency, sigma_suppress, signal_stability.
+    """
+    scores = {}
+
+    # 1. Alpha ratio score
+    alpha_ratios = []
+    for ch in ("F7", "F8"):
+        if ch in ratios:
+            seg = ratios[ch]["alpha"].values[start:end]
+            if len(seg) > 0:
+                alpha_ratios.append(float(np.mean(seg)))
+    scores["alpha_ratio"] = float(
+        _sigmoid(np.mean(alpha_ratios), center=ACTIVATION_THRESHOLD)
+    ) if alpha_ratios else 0.0
+
+    # 2. Beta ratio score
+    beta_ratios = []
+    for ch in ("F7", "F8"):
+        if ch in ratios:
+            seg = ratios[ch]["beta"].values[start:end]
+            if len(seg) > 0:
+                beta_ratios.append(float(np.mean(seg)))
+    scores["beta_ratio"] = float(
+        _sigmoid(np.mean(beta_ratios), center=ACTIVATION_THRESHOLD)
+    ) if beta_ratios else 0.0
+
+    # 3. Bilateral score
+    bilat_seg = channel_masks["bilateral"][start:end]
+    scores["bilateral"] = float(bilat_seg.mean()) if len(bilat_seg) > 0 else 0.0
+
+    # 4. EMG consistency score
+    emg_fracs = []
+    for ch in ("F7", "F8"):
+        if ch in emg_envelopes and ch in emg_baselines:
+            emg_seg = emg_envelopes[ch][start:end]
+            bas_seg = emg_baselines[ch][start:end]
+            if len(emg_seg) > 0:
+                emg_fracs.append(float((emg_seg > bas_seg).mean()))
+    scores["emg_consistency"] = float(np.mean(emg_fracs)) if emg_fracs else 0.5
+
+    # 5. Sigma suppression score (inverseer: lage sigma = hoge score)
+    sigma_ratios = []
+    for ch in ("F7", "F8"):
+        if ch in ratios:
+            seg = ratios[ch]["sigma"].values[start:end]
+            if len(seg) > 0:
+                sigma_ratios.append(float(np.mean(seg)))
+    scores["sigma_suppress"] = float(
+        1.0 - _sigmoid(np.mean(sigma_ratios), center=1.0)
+    ) if sigma_ratios else 0.5
+
+    # 6. Signal stability score (duur-agnostisch)
+    combined_seg = channel_masks["combined"][start:end]
+    scores["signal_stability"] = float(
+        combined_seg.mean()
+    ) if len(combined_seg) > 0 else 0.0
+
+    # Gewogen gemiddelde
+    weights       = AROUSAL_SCORE_WEIGHTS
+    total_w       = sum(weights.values())
+    arousal_score = sum(scores[k] * weights[k] for k in weights) / total_w
+
+    # Clip alle component scores naar [0, 1] voor opslag
+    # Voorkomt waarden > 1 door numerieke randgevallen (bijv. aan het begin
+    # van de opname voordat de 90s baseline gevuld is)
+    for k in list(scores.keys()):
+        scores[k] = round(float(np.clip(scores[k], 0.0, 1.0)), 4)
+
+    # Arousal score ook clippen en opnieuw berekenen na clipping
+    arousal_score = sum(scores[k] * weights[k] for k in weights) / total_w
+    scores["arousal_score"] = round(float(np.clip(arousal_score, 0.0, 1.0)), 4)
+
+    return scores
+
+
 # =============================================================================
 # SECTIE 10 — EVENTS NAAR DATAFRAME
 # =============================================================================
 
-# Column names for an empty DataFrame (so gate column always exists)
 _OUTPUT_COLUMNS = [
     "start_sample", "end_sample", "start_sec", "end_sec",
     "duration_sec", "duration_category", "F7_active", "F8_active",
+    "spindle_score",
+    "arousal_score",
+    "score_alpha_ratio", "score_beta_ratio", "score_bilateral",
+    "score_emg_consistency", "score_sigma_suppress", "score_signal_stability",
     "post_wake_frac", "stage_rk", "stage_label", "gate",
 ]
 
 
 def events_to_dataframe(tagged_events, channel_masks,
-                         wake_mask, stage_array,
+                         spindle_score, wake_mask, stage_array,
+                         envelopes, baselines,
+                         emg_envelopes, emg_baselines,
+                         ratios,
                          sfreq=TARGET_SFREQ):
     """
     Bouwt de output DataFrame van ALLE events inclusief gefilterde.
+    Seconds kolommen opgeslagen met komma als decimaalteken zodat Excel
+    (Nederlandse locale) ze correct weergeeft.
 
-    Kolommen:
-      start_sample, end_sample   : sample indices
-      start_sec, end_sec         : tijden in seconden
-      duration_sec               : duur van het event in seconden
-      duration_category          : 'short' (1-3 s) of 'arousal' (3-15 s)
-      F7_active                  : True als F7 (links) ergens actief was
-      F8_active                  : True als F8 (rechts) ergens actief was
-      post_wake_frac             : fractie van 15 s na event die wake was
-      stage_rk                   : R&K slaapfase integer (0,1,2,3,5)
-      stage_label                : leesbare slaapfase ('N1','N2','N3','REM')
-      gate                       : 'accepted' | 'A' | 'B' | 'C'
+    Filter later met: df[df["gate"] == "accepted"]
     """
-    # Return empty DataFrame with correct columns when no events found
     if not tagged_events:
         return pd.DataFrame(columns=_OUTPUT_COLUMNS)
 
@@ -765,6 +782,14 @@ def events_to_dataframe(tagged_events, channel_masks,
         bilat_seg = channel_masks["bilateral"][start:end]
 
         stage_val = int(pd.Series(stage_array[start:end]).mode()[0])
+
+        ar = compute_arousal_score(
+            start, end,
+            envelopes, baselines,
+            emg_envelopes, emg_baselines,
+            ratios, channel_masks, sfreq
+        )
+
         rows.append({
             "start_sample":      start,
             "end_sample":        end,
@@ -774,6 +799,14 @@ def events_to_dataframe(tagged_events, channel_masks,
             "duration_category": "micro" if dur_sec <= 3.0 else "arousal",
             "F7_active":         bool(f7_seg.any() or bilat_seg.any()),
             "F8_active":         bool(f8_seg.any() or bilat_seg.any()),
+            "spindle_score":          f"{spindle_score[start:end].mean():.4f}".replace(".", ","),
+            "arousal_score":          f"{ar['arousal_score']:.4f}".replace(".", ","),
+            "score_alpha_ratio":      f"{ar['alpha_ratio']:.4f}".replace(".", ","),
+            "score_beta_ratio":       f"{ar['beta_ratio']:.4f}".replace(".", ","),
+            "score_bilateral":        f"{ar['bilateral']:.4f}".replace(".", ","),
+            "score_emg_consistency":  f"{ar['emg_consistency']:.4f}".replace(".", ","),
+            "score_sigma_suppress":   f"{ar['sigma_suppress']:.4f}".replace(".", ","),
+            "score_signal_stability": f"{ar['signal_stability']:.4f}".replace(".", ","),
             "post_wake_frac":    f"{wake_mask[end:post_end].mean():.4f}".replace(".", ","),
             "stage_rk":          stage_val,
             "stage_label":       RK_LABELS.get(stage_val, "Unscored"),
@@ -782,10 +815,6 @@ def events_to_dataframe(tagged_events, channel_masks,
 
     return pd.DataFrame(rows)
 
-# df = pd.read_csv("candidate_events_....csv", sep=";")
-# df["start_sec"] = df["start_sec"].str.replace(",", ".").astype(float)
-# df["end_sec"]   = df["end_sec"].str.replace(",", ".").astype(float)
-# df["duration_sec"] = df["duration_sec"].str.replace(",", ".").astype(float)
 
 # =============================================================================
 # SECTIE 11 — VERWERKING VAN ÉÉN NACHT
@@ -815,12 +844,10 @@ def _process_night(edf_dir: Path) -> dict:
         "timestamp":          datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
-    # ── Skip als output al bestaat ────────────────────────────────────────────
     if out_csv.exists():
         log["status"] = "skipped"
         return log
 
-    # ── Skip als hypnogram ontbreekt (optie A) ────────────────────────────────
     if not hyp_path.exists():
         log["status"] = "no_hypnogram"
         log["error"]  = f"Hypnogram niet gevonden: {hyp_path}"
@@ -829,32 +856,23 @@ def _process_night(edf_dir: Path) -> dict:
     try:
         with contextlib.redirect_stdout(io.StringIO()):
 
-            # ── Hypnogram laden ───────────────────────────────────────────────
             hypnogram = load_hypnogram(hyp_path)
-
-            # ── Laden + preprocessing ─────────────────────────────────────────
-            # edf_dir is de *_edf map met de losse kanaalbestanden
             signals   = load_and_preprocess(edf_dir)
-            sfreq   = signals["sfreq"]
+            sfreq     = signals["sfreq"]
             n_samples = len(signals[CH_F7])
 
-            # ── Wake mask en stage array vanuit hypnogram ─────────────────────
             wake_mask   = hypnogram_to_wake_mask(hypnogram, n_samples, sfreq)
             stage_array = hypnogram_to_stage_array(hypnogram, n_samples, sfreq)
 
-            # ── Bewegingsmasker ───────────────────────────────────────────────
             movement_mask, mov_stats = remove_movement_artifacts(signals, sfreq)
 
-            # ── Band-envelopes ────────────────────────────────────────────────
             envelopes     = compute_band_envelopes(signals, sfreq)
             emg_envelopes = compute_emg_envelopes(signals, sfreq)
 
-            # ── Baseline + ratio ──────────────────────────────────────────────
             baselines     = compute_rolling_baseline(envelopes, movement_mask, sfreq)
             ratios        = compute_ratio(envelopes, baselines)
             emg_baselines = compute_emg_baseline(emg_envelopes, movement_mask, sfreq)
 
-            # ── Candidate detectie ────────────────────────────────────────────
             activation_masks = compute_activation_mask(ratios)
             channel_masks    = combine_channels(activation_masks)
             spindle_score    = compute_spindle_score(ratios, envelopes)
@@ -862,33 +880,28 @@ def _process_night(edf_dir: Path) -> dict:
             candidate_mask = channel_masks["combined"].copy()
             candidate_mask = candidate_mask & ~movement_mask
 
-            # ── Event grenzen ─────────────────────────────────────────────────
             events = mask_to_events(candidate_mask)
             events = merge_events(events, sfreq)
             events = apply_duration_filter(events, sfreq)
 
-            # ── Micro-arousal gates ───────────────────────────────────────────
-            # Returns ALL events tagged with gate label, not filtered
             tagged_events, gate_counts = apply_microarousal_gates(
                 events, wake_mask, emg_envelopes, emg_baselines, sfreq
             )
 
-            # ── DataFrame bouwen (alle events, inclusief gefilterde) ──────────
-            # Filter zelf met: df[df["gate"] == "accepted"]
             df = events_to_dataframe(
                 tagged_events, channel_masks,
-                wake_mask, stage_array,
+                spindle_score, wake_mask, stage_array,
+                envelopes, baselines,
+                emg_envelopes, emg_baselines,
+                ratios,
                 sfreq
             )
 
-        # ── Identifiers toevoegen en opslaan ──────────────────────────────────
         df.insert(0, "night_id",   ids["night_id"])
         df.insert(0, "subject_id", ids["subject_id"])
         out_csv.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(out_csv, index=False, sep=";", decimal=".", float_format="%.4f")
 
-        # df can be empty if no events were detected at all — guard against
-        # missing "gate" column before trying to count accepted events
         n_accepted = (df["gate"] == "accepted").sum() if "gate" in df.columns else 0
         log.update({
             "status":            "ok",
@@ -902,6 +915,7 @@ def _process_night(edf_dir: Path) -> dict:
         })
 
     except Exception:
+        # Full traceback — not truncated so we can diagnose any error
         log["error"] = traceback.format_exc()
 
     return log
@@ -949,12 +963,12 @@ def run_batch(limit: int = None, n_jobs: int = N_JOBS) -> pd.DataFrame:
     log_path = EVENTS_DIR / "batch_log.csv"
     log_df.to_csv(log_path, index=False)
 
-    ok_df    = log_df[log_df["status"] == "ok"]
-    n_ok     = len(ok_df)
-    n_skip   = (log_df["status"] == "skipped").sum()
-    n_nohyp  = (log_df["status"] == "no_hypnogram").sum()
-    n_fail   = (log_df["status"] == "failed").sum()
-    mins     = (datetime.now() - t_start).total_seconds() / 60
+    ok_df   = log_df[log_df["status"] == "ok"]
+    n_ok    = len(ok_df)
+    n_skip  = (log_df["status"] == "skipped").sum()
+    n_nohyp = (log_df["status"] == "no_hypnogram").sum()
+    n_fail  = (log_df["status"] == "failed").sum()
+    mins    = (datetime.now() - t_start).total_seconds() / 60
 
     print(f"\n{'=' * 65}")
     print(f"  Succesvol        : {n_ok}")
@@ -976,7 +990,7 @@ def run_batch(limit: int = None, n_jobs: int = N_JOBS) -> pd.DataFrame:
     if n_fail > 0:
         for _, row in log_df[log_df["status"] == "failed"].iterrows():
             print(f"\n  FAIL: {row['subject_id']} / {row['night_id']}")
-            print(f"  {row['error'][:300]}")
+            print(f"  {row['error']}")   # full traceback, not truncated
 
     return log_df
 
