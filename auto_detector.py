@@ -4,7 +4,8 @@ PHASE 9 — Candidate event pipeline direct vanuit losse ZMax EDF bestanden
            (geen tussenliggende .fif of samengevoegde EDF nodig)
 
 Per nacht worden de losse kanaalbestanden geladen:
-  EEG L.edf, EEG R.edf, dX.edf, dY.edf, dZ.edf  (OXY_IR_AC optioneel)
+  EEG L.edf, EEG R.edf, dX.edf, dY.edf, dZ.edf
+  OXY_IR_AC.edf wordt ingeladen maar nog niet gebruikt in de detectie.
 
 Mappenstructuur verwacht:
   RAW_ROOT / GROUP / subject_id / subject_id_T0_N1 / subject_id_T0_N1_edf /
@@ -13,6 +14,7 @@ Mappenstructuur verwacht:
       dX.edf
       dY.edf
       dZ.edf
+      OXY_IR_AC.edf   (optioneel)
 
 Hypnogram (verplicht):
   Per nacht moet een human-rated hypnogram CSV aanwezig zijn:
@@ -22,21 +24,22 @@ Hypnogram (verplicht):
   Nachten zonder hypnogram worden overgeslagen.
 
 Gates:
-  Gate A — Meerderheid (>50%) van het event in een wake epoch (Lucija's scoring)
-            → verwijderd. Strenger dan alleen de onset sample checken.
-  Gate B — Post-event: ≥50% van de 15 s ná het event is wake (Lucija's scoring)
-            → patiënt werd wakker = volledige arousal, geen micro-arousal.
-  Gate C — Event valt in REM epoch (Lucija's scoring) EN geen EMG activatie
-            → normale phasic REM activiteit, geen echte arousal.
-            REM wordt bepaald via Lucija's R&K score = 5, NIET via EMG signaal.
+  Gate A — Meerderheid (>= GATE_A_WAKE_FRAC) van het event in een wake epoch
+            (Lucija's scoring) → verwijderd.
+  Gate B — Post-event: >= 50% van de 15 s na het event is wake (Lucija's scoring)
+            → patient werd wakker = volledige arousal, geen micro-arousal.
+  Gate C — VERWIJDERD. De ZMax heeft geen dedicated EMG kanaal. Het frontale
+            EEG signaal kan niet betrouwbaar als EMG proxy dienen voor REM
+            artefact uitsluiting. OXY_IR_AC wordt in de toekomst mogelijk
+            gebruikt als cardiovasculaire proxy.
 
 Output:
   EVENTS_DIR / GROUP / subject_id / candidate_events_{subject_id}_{night_id}.csv
 
 Gebruik:
-  python phase5to8-new.py             # volledige batch
-  python phase5to8-new.py --limit 3   # testen op 3 nachten
-  python phase5to8-new.py --jobs 4    # 4 parallelle workers
+  python phase9_from_raw.py             # volledige batch
+  python phase9_from_raw.py --limit 3   # testen op 3 nachten
+  python phase9_from_raw.py --jobs 4    # 4 parallelle workers
 =============================================================================
 """
 
@@ -71,31 +74,30 @@ GROUPS     = ["NSR", "Prezens", "SAV"]
 EVENTS_DIR = Path(r"C:\Users\zafar\Documents\THESIS_OUTPUTS\2_candidate_events")
 EVENTS_DIR.mkdir(parents=True, exist_ok=True)
 
+# OXY_IR_AC wordt ingeladen maar nog niet gebruikt in de detectie of scoring.
 CHANNEL_FILES = {
-    "EEG L psg-lp":  "EEG L",
-    "EEG R psg-lp":  "EEG R",
-    "EEG L psg-emg": "EEG L",
-    "EEG R psg-emg": "EEG R",
-    "dX":            "dX",
-    "dY":            "dY",
-    "dZ":            "dZ",
+    "EEG L psg-lp": "EEG L",
+    "EEG R psg-lp": "EEG R",
+    "dX":           "dX",
+    "dY":           "dY",
+    "dZ":           "dZ",
 }
 
-CH_F7    = "EEG L psg-lp"
-CH_F8    = "EEG R psg-lp"
-CH_EMG_L = "EEG L psg-emg"
-CH_EMG_R = "EEG R psg-emg"
-EEG_CH   = [CH_F7, CH_F8]
-EMG_CH   = [CH_EMG_L, CH_EMG_R]
-MOV_CH   = ["dX", "dY", "dZ"]
-ALL_CH   = EEG_CH + EMG_CH + MOV_CH
+CH_F7  = "EEG L psg-lp"
+CH_F8  = "EEG R psg-lp"
+EEG_CH = [CH_F7, CH_F8]
+MOV_CH = ["dX", "dY", "dZ"]
+ALL_CH = EEG_CH + MOV_CH
+
+# OXY_IR_AC: apart van CHANNEL_FILES omdat het optioneel is en
+# nog niet in de pipeline wordt gebruikt.
+CH_OXY     = "OXY_IR_AC"
+OXY_FILE   = "OXY_IR_AC"
 
 TARGET_SFREQ          = 128
 NOTCH_HZ              = 50.0
 EEG_L_FREQ            = 0.1
 EEG_H_FREQ            = 35.0
-EMG_L_FREQ            = 10.0
-EMG_H_FREQ            = 100.0
 MOVEMENT_THRESHOLD_UV = 1000.0
 
 BANDS = {
@@ -113,25 +115,23 @@ MERGE_GAP_SEC        = 1.0
 MIN_DUR_SEC          = 1.0
 MAX_DUR_SEC          = 15.0
 
-POST_EVENT_CHECK_SEC     = 15.0
-POST_EVENT_WAKE_FRAC     = 0.5
-REM_EMG_SUPPRESSION_FRAC = 0.8
+POST_EVENT_CHECK_SEC = 15.0
+POST_EVENT_WAKE_FRAC = 0.5
 
 # Gate A: fractie van het event die in wake moet liggen om te worden verwijderd.
-# 0.5 = meerderheid (>50%) in wake → verwijderen.
-GATE_A_WAKE_FRAC = 0.1
+GATE_A_WAKE_FRAC = 0.5
 
 N_JOBS     = -1
 STAGE_WAKE = 0
-STAGE_REM  = 5   # R&K codering: REM = 5
+STAGE_REM  = 5
 EPOCH_SEC  = 30
 
 # ── Arousal score gewichten ───────────────────────────────────────────────────
+# emg_consistency verwijderd: ZMax heeft geen dedicated EMG kanaal.
 AROUSAL_SCORE_WEIGHTS = {
-    "alpha_ratio":      0.25,
-    "beta_ratio":       0.20,
-    "bilateral":        0.15,
-    "emg_consistency":  0.15,
+    "alpha_ratio":      0.30,
+    "beta_ratio":       0.25,
+    "bilateral":        0.20,
     "sigma_suppress":   0.10,
     "signal_stability": 0.15,
 }
@@ -190,6 +190,12 @@ def get_hypnogram_path(ids: dict) -> Path:
 # =============================================================================
 
 def load_and_preprocess(edf_dir: Path) -> dict:
+    """
+    Laadt losse EDF kanaalbestanden en past preprocessing toe.
+    OXY_IR_AC wordt apart ingeladen en doorgegeven als ruwe array
+    in signals["OXY_IR_AC"] zonder verdere verwerking.
+    Vereist: EEG L.edf en EEG R.edf moeten aanwezig en leesbaar zijn.
+    """
     loaded      = {}
     sfreq_ref   = None
     load_errors = []
@@ -228,7 +234,7 @@ def load_and_preprocess(edf_dir: Path) -> dict:
     if not arrays:
         raise ValueError(f"Geen bruikbare kanalen in {edf_dir}")
 
-    min_len = min(len(d) for d in arrays.values())
+    min_len      = min(len(d) for d in arrays.values())
     min_required = max(1000, int(10 * (sfreq_ref or TARGET_SFREQ)))
     if min_len < min_required:
         raise ValueError(
@@ -240,11 +246,7 @@ def load_and_preprocess(edf_dir: Path) -> dict:
         arrays[k] = arrays[k][:min_len]
 
     ch_names = list(arrays.keys())
-    ch_types = []
-    for name in ch_names:
-        if   "psg-lp"  in name: ch_types.append("eeg")
-        elif "psg-emg" in name: ch_types.append("emg")
-        else:                   ch_types.append("misc")
+    ch_types = ["eeg" if "psg-lp" in n else "misc" for n in ch_names]
 
     data_mx = np.stack(list(arrays.values())) * 1e-6
     info    = mne.create_info(ch_names=ch_names, sfreq=sfreq_ref,
@@ -252,37 +254,49 @@ def load_and_preprocess(edf_dir: Path) -> dict:
     raw     = mne.io.RawArray(data_mx, info, verbose=False)
     raw._data = raw._data.astype(np.float64)
 
-    eeg_lp_chs = [ch for ch in raw.ch_names if "psg-lp"  in ch]
-    emg_chs    = [ch for ch in raw.ch_names if "psg-emg" in ch]
+    eeg_lp_chs = [ch for ch in raw.ch_names if "psg-lp" in ch]
     mov_chs    = [ch for ch in raw.ch_names if ch in MOV_CH]
 
-    for ch in eeg_lp_chs + emg_chs:
+    # 1. DC removal
+    for ch in eeg_lp_chs:
         idx = raw.ch_names.index(ch)
         raw._data[idx] -= np.mean(raw._data[idx])
 
+    # 2. Notch 50 Hz
     if sfreq_ref > NOTCH_HZ * 2 and eeg_lp_chs:
         raw.notch_filter(freqs=NOTCH_HZ, picks=eeg_lp_chs, verbose=False)
 
+    # 3. Bandpass EEG: 0.1–35 Hz
     if eeg_lp_chs:
         raw.filter(l_freq=EEG_L_FREQ, h_freq=EEG_H_FREQ,
                    picks=eeg_lp_chs, method="fir",
                    fir_window="hamming", verbose=False)
 
-    if emg_chs:
-        h_emg = min(EMG_H_FREQ, sfreq_ref / 2 - 1)
-        raw.filter(l_freq=EMG_L_FREQ, h_freq=h_emg,
-                   picks=emg_chs, verbose=False)
-
+    # 4. DC removal accelerometer
     if mov_chs:
         raw.apply_function(lambda x: x - np.mean(x),
                            picks=mov_chs, verbose=False)
 
+    # 5. Resample naar 128 Hz
     if sfreq_ref != TARGET_SFREQ:
         raw.resample(TARGET_SFREQ, verbose=False)
 
     signals = {ch: raw.get_data(picks=ch)[0] * 1e6
                for ch in raw.ch_names}
     signals["sfreq"] = TARGET_SFREQ
+
+    # ── OXY_IR_AC: apart inladen, ruw opslaan, nog niet gebruiken ────────────
+    oxy_path = edf_dir / f"{OXY_FILE}.edf"
+    if oxy_path.exists():
+        try:
+            oxy_raw = mne.io.read_raw_edf(oxy_path, preload=True, verbose=False)
+            signals[CH_OXY] = oxy_raw.get_data()[0]   # in V, ruw
+        except Exception as e:
+            signals[CH_OXY] = None
+            # Niet fataal — OXY_IR_AC is optioneel
+    else:
+        signals[CH_OXY] = None
+
     return signals
 
 
@@ -352,17 +366,6 @@ def compute_band_envelopes(signals: dict,
     return result
 
 
-def compute_emg_envelopes(signals: dict,
-                           sfreq: float = TARGET_SFREQ) -> dict:
-    result = {}
-    for ch_label, ch_name in [("F7", CH_EMG_L), ("F8", CH_EMG_R)]:
-        if ch_name not in signals:
-            continue
-        env = compute_envelope(signals[ch_name])
-        result[ch_label] = smooth_envelope(env, SMOOTH_SEC, sfreq)
-    return result
-
-
 # =============================================================================
 # SECTIE 6 — BASELINE + RATIO
 # =============================================================================
@@ -409,34 +412,11 @@ def compute_ratio(envelopes: dict, baselines: dict) -> dict:
     return ratios
 
 
-def compute_emg_baseline(emg_envelopes: dict,
-                          movement_mask: np.ndarray = None,
-                          sfreq: float = TARGET_SFREQ) -> dict:
-    baselines = {}
-    for ch_label, env in emg_envelopes.items():
-        arr = env.copy().astype(np.float32)
-        if movement_mask is not None:
-            arr[movement_mask] = np.nan
-        arr = pd.Series(arr).ffill().bfill().values.astype(np.float32)
-        baselines[ch_label] = _rolling_median_causal(arr, sfreq, BASELINE_SEC)
-    return baselines
-
-
 # =============================================================================
 # SECTIE 7 — HYPNOGRAM LADEN + MASKERS
-#
-# Alle gate-beslissingen (A, B, C) zijn gebaseerd op Lucija's R&K scoring.
-# Het hypnogram wordt omgezet naar drie sample-niveau arrays:
-#   wake_mask   : True waar score = 0 (Wake)
-#   rem_mask    : True waar score = 5 (REM)  ← gebruikt door Gate C
-#   stage_array : R&K integer per sample (voor output labels)
 # =============================================================================
 
 def load_hypnogram(hyp_path: Path) -> np.ndarray:
-    """
-    Laadt hypnogram CSV (één R&K score per rij, geen header).
-    R&K: 0=Wake, 1=N1, 2=N2, 3=N3, 5=REM
-    """
     df = pd.read_csv(hyp_path, header=None)
     return df.iloc[:, 0].values.astype(int)
 
@@ -445,10 +425,6 @@ def _hypnogram_to_mask(hypnogram: np.ndarray, n_samples: int,
                         target_stage: int,
                         sfreq: float = TARGET_SFREQ,
                         epoch_sec: int = EPOCH_SEC) -> np.ndarray:
-    """
-    Generieke helper: zet hypnogram om naar sample-niveau boolean mask
-    voor één specifieke R&K stage waarde.
-    """
     samples_per_epoch = int(epoch_sec * sfreq)
     mask              = np.zeros(n_samples, dtype=bool)
     for epoch_idx, score in enumerate(hypnogram):
@@ -464,25 +440,12 @@ def _hypnogram_to_mask(hypnogram: np.ndarray, n_samples: int,
 def hypnogram_to_wake_mask(hypnogram: np.ndarray, n_samples: int,
                             sfreq: float = TARGET_SFREQ,
                             epoch_sec: int = EPOCH_SEC) -> np.ndarray:
-    """Sample-niveau mask: True = Wake epoch (R&K score 0, Lucija's scoring)."""
     return _hypnogram_to_mask(hypnogram, n_samples, STAGE_WAKE, sfreq, epoch_sec)
-
-
-def hypnogram_to_rem_mask(hypnogram: np.ndarray, n_samples: int,
-                           sfreq: float = TARGET_SFREQ,
-                           epoch_sec: int = EPOCH_SEC) -> np.ndarray:
-    """
-    Sample-niveau mask: True = REM epoch (R&K score 5, Lucija's scoring).
-    Wordt gebruikt door Gate C om te bepalen of een event in REM valt.
-    Dit is de enige plek waar REM bepaald wordt — via Lucija, niet via EMG.
-    """
-    return _hypnogram_to_mask(hypnogram, n_samples, STAGE_REM, sfreq, epoch_sec)
 
 
 def hypnogram_to_stage_array(hypnogram: np.ndarray, n_samples: int,
                               sfreq: float = TARGET_SFREQ,
                               epoch_sec: int = EPOCH_SEC) -> np.ndarray:
-    """Sample-niveau R&K integer per sample. Voor output stage labels."""
     samples_per_epoch = int(epoch_sec * sfreq)
     stage_array       = np.full(n_samples, -1, dtype=int)
     for epoch_idx, score in enumerate(hypnogram):
@@ -570,108 +533,50 @@ def apply_duration_filter(events, sfreq=TARGET_SFREQ):
 # SECTIE 9 — MICRO-AROUSAL GATES
 #
 # Gate A — Wake uitsluiting (Lucija's scoring)
-#   Naam: gate_a
-#   Als meerderheid (≥ GATE_A_WAKE_FRAC = 50%) van de samples in het event
-#   in een wake epoch valt → event verwijderen.
-#   Strenger dan alleen de onset sample checken: vangt ook events die
-#   1 sample voor een wake epoch beginnen maar grotendeels in wake liggen.
+#   Als >= GATE_A_WAKE_FRAC van de samples in het event in een wake epoch
+#   valt → verwijderen. Strenger dan alleen de onset sample checken.
 #
 # Gate B — Post-event wake check (Lucija's scoring)
-#   Naam: gate_b
-#   Kijk POST_EVENT_CHECK_SEC (15 s) na het event.
-#   Als ≥ POST_EVENT_WAKE_FRAC (50%) van dat venster wake is → patiënt
-#   werd wakker na het event = volledige arousal, geen micro-arousal.
+#   Kijk POST_EVENT_CHECK_SEC (15 s) na het event. Als >= POST_EVENT_WAKE_FRAC
+#   (50%) wake is → patient werd wakker = volledige arousal, geen micro-arousal.
 #
-# Gate C — REM zonder EMG activatie (Lucija's scoring + EMG signaal)
-#   Naam: gate_c
-#   REM wordt bepaald via Lucija's R&K score = 5 (rem_mask), NIET via EMG.
-#   Als het event in een REM epoch valt (rem_mask) EN het EMG signaal
-#   niet verhoogd is tijdens het event → normale phasic REM activiteit
-#   (sawtooth waves), geen echte arousal → verwijderen.
-#   De EMG check is alleen de elevation check, niet de REM identificatie.
+# Gate C — VERWIJDERD.
+#   De ZMax heeft geen dedicated EMG kanaal. Het frontale EEG signaal biedt
+#   onvoldoende scheiding tussen corticale en musculaire activiteit om
+#   betrouwbaar REM artefacten uit te sluiten op basis van EMG proxy.
+#   REM events worden wel gelabeld in de output (stage_label = "REM") zodat
+#   downstream analyses hier zelf mee kunnen omgaan.
 # =============================================================================
 
-def _has_emg_elevation(onset, offset, emg_envelopes, emg_baselines):
+def apply_microarousal_gates(events, wake_mask, sfreq=TARGET_SFREQ):
     """
-    True als EMG verhoogd is boven baseline voor meerderheid van het event.
-    Gebruikt alleen voor de elevation check in Gate C.
-    REM identificatie gebeurt via Lucija's hypnogram (rem_mask), niet hier.
-    """
-    fracs = []
-    for ch in ("F7", "F8"):
-        if ch not in emg_envelopes or ch not in emg_baselines:
-            continue
-        fracs.append(
-            (emg_envelopes[ch][onset:offset] >
-             emg_baselines[ch][onset:offset]).mean()
-        )
-    return np.mean(fracs) >= 0.5 if fracs else True
-
-
-def apply_microarousal_gates(events, wake_mask, rem_mask,
-                              emg_envelopes, emg_baselines,
-                              sfreq=TARGET_SFREQ):
-    """
-    Past drie gates toe op de candidate event lijst.
-    Alle events worden teruggegeven met een gate label — niets wordt
-    weggegooid, zodat je zelf kunt filteren in de analyse.
-
-    Parameters
-    ----------
-    events        : lijst van (start, end) sample tuples
-    wake_mask     : boolean array, True = wake sample (Lucija's scoring)
-    rem_mask      : boolean array, True = REM sample (Lucija's scoring, R&K=5)
-    emg_envelopes : EMG envelope arrays per kanaal
-    emg_baselines : EMG baseline arrays per kanaal
-    sfreq         : samplefrequentie
+    Past twee gates toe op de candidate event lijst.
+    Alle events worden teruggegeven met een gate label.
 
     gate waarden in output:
-      'accepted' — alle gates gepasseerd, dit is een micro-arousal
+      'accepted' — beide gates gepasseerd, dit is een candidate micro-arousal
       'A'        — meerderheid event in wake (Lucija's scoring)
-      'B'        — patiënt werd wakker ná event (Lucija's scoring)
-      'C'        — event in REM (Lucija's scoring) zonder EMG activatie
+      'B'        — patient werd wakker na event (Lucija's scoring)
     """
     post_s  = int(POST_EVENT_CHECK_SEC * sfreq)
     n       = len(wake_mask)
     tagged  = []
     counts  = {"gate_a_wake_onset": 0,
-               "gate_b_post_wake":  0,
-               "gate_c_rem_emg":    0}
+               "gate_b_post_wake":  0}
 
     for start, end in events:
 
-        # ── Gate A — Wake uitsluiting ─────────────────────────────────────────
-        # Berekent de fractie van het event die in wake valt (Lucija's scoring).
-        # Bij ≥ GATE_A_WAKE_FRAC (50%) → verwijderen.
-        # Strenger dan de oude onset-only check: vangt events die net voor
-        # een wake epoch beginnen maar grotendeels in wake liggen.
-        gate_a = wake_mask[start:end].mean() >= GATE_A_WAKE_FRAC
-        if gate_a:
+        # Gate A — Wake uitsluiting
+        if wake_mask[start:end].mean() >= GATE_A_WAKE_FRAC:
             counts["gate_a_wake_onset"] += 1
             tagged.append((start, end, "A"))
             continue
 
-        # ── Gate B — Post-event wake check ───────────────────────────────────
-        # Kijk 15 s na het event of de patiënt wakker werd (Lucija's scoring).
-        # Bij ≥ 50% wake in dat venster → volledige arousal, geen micro-arousal.
+        # Gate B — Post-event wake check
         post_window = wake_mask[end:min(end + post_s, n)]
-        gate_b = len(post_window) > 0 and post_window.mean() >= POST_EVENT_WAKE_FRAC
-        if gate_b:
+        if len(post_window) > 0 and post_window.mean() >= POST_EVENT_WAKE_FRAC:
             counts["gate_b_post_wake"] += 1
             tagged.append((start, end, "B"))
-            continue
-
-        # ── Gate C — REM zonder EMG activatie ────────────────────────────────
-        # REM bepaald via Lucija's R&K score = 5 (rem_mask), NIET via EMG.
-        # Als het event in REM valt én EMG niet verhoogd is → waarschijnlijk
-        # normale phasic REM activiteit (sawtooth waves), geen echte arousal.
-        event_in_rem = rem_mask[start:end].mean() >= 0.5
-        gate_c = event_in_rem and not _has_emg_elevation(
-            start, end, emg_envelopes, emg_baselines
-        )
-        if gate_c:
-            counts["gate_c_rem_emg"] += 1
-            tagged.append((start, end, "C"))
             continue
 
         tagged.append((start, end, "accepted"))
@@ -681,6 +586,14 @@ def apply_microarousal_gates(events, wake_mask, rem_mask,
 
 # =============================================================================
 # SECTIE 9b — AROUSAL SCORE
+#
+# 5 componenten (emg_consistency verwijderd — geen dedicated EMG kanaal):
+#
+# 1. alpha_ratio      (0.30) sigmoid van gem. alpha ratio tijdens event
+# 2. beta_ratio       (0.25) sigmoid van gem. beta ratio tijdens event
+# 3. bilateral        (0.20) fractie event waarbij F7 en F8 tegelijk actief
+# 4. sigma_suppress   (0.10) 1 - sigmoid(sigma_ratio): spindles gestopt = arousal
+# 5. signal_stability (0.15) fractie samples boven detectiedrempel
 # =============================================================================
 
 def _sigmoid(x, center, steepness=1.5):
@@ -689,11 +602,11 @@ def _sigmoid(x, center, steepness=1.5):
 
 def compute_arousal_score(start: int, end: int,
                            envelopes: dict, baselines: dict,
-                           emg_envelopes: dict, emg_baselines: dict,
                            ratios: dict, channel_masks: dict,
                            sfreq: float = TARGET_SFREQ) -> dict:
     scores = {}
 
+    # 1. Alpha ratio
     alpha_ratios = []
     for ch in ("F7", "F8"):
         if ch in ratios:
@@ -704,6 +617,7 @@ def compute_arousal_score(start: int, end: int,
         _sigmoid(np.mean(alpha_ratios), center=ACTIVATION_THRESHOLD)
     ) if alpha_ratios else 0.0
 
+    # 2. Beta ratio
     beta_ratios = []
     for ch in ("F7", "F8"):
         if ch in ratios:
@@ -714,18 +628,11 @@ def compute_arousal_score(start: int, end: int,
         _sigmoid(np.mean(beta_ratios), center=ACTIVATION_THRESHOLD)
     ) if beta_ratios else 0.0
 
+    # 3. Bilateral
     bilat_seg = channel_masks["bilateral"][start:end]
     scores["bilateral"] = float(bilat_seg.mean()) if len(bilat_seg) > 0 else 0.0
 
-    emg_fracs = []
-    for ch in ("F7", "F8"):
-        if ch in emg_envelopes and ch in emg_baselines:
-            emg_seg = emg_envelopes[ch][start:end]
-            bas_seg = emg_baselines[ch][start:end]
-            if len(emg_seg) > 0:
-                emg_fracs.append(float((emg_seg > bas_seg).mean()))
-    scores["emg_consistency"] = float(np.mean(emg_fracs)) if emg_fracs else 0.5
-
+    # 4. Sigma suppression
     sigma_ratios = []
     for ch in ("F7", "F8"):
         if ch in ratios:
@@ -736,6 +643,7 @@ def compute_arousal_score(start: int, end: int,
         1.0 - _sigmoid(np.mean(sigma_ratios), center=1.0)
     ) if sigma_ratios else 0.5
 
+    # 5. Signal stability
     combined_seg = channel_masks["combined"][start:end]
     scores["signal_stability"] = float(
         combined_seg.mean()
@@ -764,16 +672,14 @@ _OUTPUT_COLUMNS = [
     "spindle_score",
     "arousal_score",
     "score_alpha_ratio", "score_beta_ratio", "score_bilateral",
-    "score_emg_consistency", "score_sigma_suppress", "score_signal_stability",
+    "score_sigma_suppress", "score_signal_stability",
     "post_wake_frac", "stage_rk", "stage_label", "gate",
 ]
 
 
 def events_to_dataframe(tagged_events, channel_masks,
                          spindle_score, wake_mask, stage_array,
-                         envelopes, baselines,
-                         emg_envelopes, emg_baselines,
-                         ratios,
+                         envelopes, baselines, ratios,
                          sfreq=TARGET_SFREQ):
     if not tagged_events:
         return pd.DataFrame(columns=_OUTPUT_COLUMNS)
@@ -795,7 +701,6 @@ def events_to_dataframe(tagged_events, channel_masks,
         ar = compute_arousal_score(
             start, end,
             envelopes, baselines,
-            emg_envelopes, emg_baselines,
             ratios, channel_masks, sfreq
         )
 
@@ -813,7 +718,6 @@ def events_to_dataframe(tagged_events, channel_masks,
             "score_alpha_ratio":      f"{ar['alpha_ratio']:.4f}".replace(".", ","),
             "score_beta_ratio":       f"{ar['beta_ratio']:.4f}".replace(".", ","),
             "score_bilateral":        f"{ar['bilateral']:.4f}".replace(".", ","),
-            "score_emg_consistency":  f"{ar['emg_consistency']:.4f}".replace(".", ","),
             "score_sigma_suppress":   f"{ar['sigma_suppress']:.4f}".replace(".", ","),
             "score_signal_stability": f"{ar['signal_stability']:.4f}".replace(".", ","),
             "post_wake_frac":         f"{wake_mask[end:post_end].mean():.4f}".replace(".", ","),
@@ -835,22 +739,22 @@ def _process_night(edf_dir: Path) -> dict:
     hyp_path = get_hypnogram_path(ids)
 
     log = {
-        "group":              ids["group"],
-        "subject_id":         ids["subject_id"],
-        "night_id":           ids["night_id"],
-        "edf_dir":            str(edf_dir),
-        "output_csv":         str(out_csv),
-        "hypnogram_path":     str(hyp_path),
-        "status":             "failed",
-        "n_events":           "",
-        "n_events_total":     "",
-        "gate_a_wake_onset":  "",
-        "gate_b_post_wake":   "",
-        "gate_c_rem_emg":     "",
-        "movement_pct_L":     "",
-        "movement_pct_R":     "",
-        "error":              "",
-        "timestamp":          datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "group":             ids["group"],
+        "subject_id":        ids["subject_id"],
+        "night_id":          ids["night_id"],
+        "edf_dir":           str(edf_dir),
+        "output_csv":        str(out_csv),
+        "hypnogram_path":    str(hyp_path),
+        "status":            "failed",
+        "n_events":          "",
+        "n_events_total":    "",
+        "gate_a_wake_onset": "",
+        "gate_b_post_wake":  "",
+        "oxy_available":     "",
+        "movement_pct_L":    "",
+        "movement_pct_R":    "",
+        "error":             "",
+        "timestamp":         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
     if out_csv.exists():
@@ -865,25 +769,19 @@ def _process_night(edf_dir: Path) -> dict:
     try:
         with contextlib.redirect_stdout(io.StringIO()):
 
-            # Hypnogram laden — alle gate-beslissingen gebaseerd op Lucija's scoring
             hypnogram = load_hypnogram(hyp_path)
             signals   = load_and_preprocess(edf_dir)
             sfreq     = signals["sfreq"]
             n_samples = len(signals[CH_F7])
 
-            # Sample-niveau maskers vanuit Lucija's hypnogram
             wake_mask   = hypnogram_to_wake_mask(hypnogram, n_samples, sfreq)
-            rem_mask    = hypnogram_to_rem_mask(hypnogram, n_samples, sfreq)
             stage_array = hypnogram_to_stage_array(hypnogram, n_samples, sfreq)
 
             movement_mask, mov_stats = remove_movement_artifacts(signals, sfreq)
 
-            envelopes     = compute_band_envelopes(signals, sfreq)
-            emg_envelopes = compute_emg_envelopes(signals, sfreq)
-
-            baselines     = compute_rolling_baseline(envelopes, movement_mask, sfreq)
-            ratios        = compute_ratio(envelopes, baselines)
-            emg_baselines = compute_emg_baseline(emg_envelopes, movement_mask, sfreq)
+            envelopes = compute_band_envelopes(signals, sfreq)
+            baselines = compute_rolling_baseline(envelopes, movement_mask, sfreq)
+            ratios    = compute_ratio(envelopes, baselines)
 
             activation_masks = compute_activation_mask(ratios)
             channel_masks    = combine_channels(activation_masks)
@@ -896,18 +794,14 @@ def _process_night(edf_dir: Path) -> dict:
             events = merge_events(events, sfreq)
             events = apply_duration_filter(events, sfreq)
 
-            # Gates toepassen — rem_mask komt van Lucija's scoring
             tagged_events, gate_counts = apply_microarousal_gates(
-                events, wake_mask, rem_mask,
-                emg_envelopes, emg_baselines, sfreq
+                events, wake_mask, sfreq
             )
 
             df = events_to_dataframe(
                 tagged_events, channel_masks,
                 spindle_score, wake_mask, stage_array,
-                envelopes, baselines,
-                emg_envelopes, emg_baselines,
-                ratios, sfreq
+                envelopes, baselines, ratios, sfreq
             )
 
         df.insert(0, "night_id",   ids["night_id"])
@@ -922,7 +816,7 @@ def _process_night(edf_dir: Path) -> dict:
             "n_events_total":    len(df),
             "gate_a_wake_onset": gate_counts["gate_a_wake_onset"],
             "gate_b_post_wake":  gate_counts["gate_b_post_wake"],
-            "gate_c_rem_emg":    gate_counts["gate_c_rem_emg"],
+            "oxy_available":     signals[CH_OXY] is not None,
             "movement_pct_L":    mov_stats.get(CH_F7, ""),
             "movement_pct_R":    mov_stats.get(CH_F8, ""),
         })
@@ -991,10 +885,11 @@ def run_batch(limit: int = None, n_jobs: int = N_JOBS) -> pd.DataFrame:
 
     if n_ok > 0:
         to_num = lambda c: pd.to_numeric(ok_df[c], errors="coerce").sum()
+        n_oxy  = ok_df["oxy_available"].sum() if "oxy_available" in ok_df else "?"
         print(f"  Totaal events        : {int(to_num('n_events'))}")
         print(f"  Gate A (wake)        : {int(to_num('gate_a_wake_onset'))}")
         print(f"  Gate B (post-wake)   : {int(to_num('gate_b_post_wake'))}")
-        print(f"  Gate C (REM no EMG)  : {int(to_num('gate_c_rem_emg'))}")
+        print(f"  OXY_IR_AC aanwezig   : {n_oxy} / {n_ok} nachten")
 
     print(f"  Log : {log_path}")
     print(f"{'=' * 65}")
@@ -1021,3 +916,6 @@ if __name__ == "__main__":
                         help="Aantal parallelle workers (-1 = alle cores)")
     args = parser.parse_args()
     run_batch(limit=args.limit, n_jobs=args.jobs)
+
+
+    
