@@ -14,7 +14,7 @@ Output (ScoringHero, komma-gescheiden, punt als decimaal):
   ...
 
 Gebruik:
-  python convert_to_scoringhero.py               # alle events (ook A/B/C)
+  python convert_to_scoringhero.py               # alle events (ook A/B)
   python convert_to_scoringhero.py --accepted    # alleen gate=accepted
   python convert_to_scoringhero.py --limit 5     # test op 5 bestanden
 =============================================================================
@@ -27,7 +27,7 @@ import pandas as pd
 
 # ── Configuratie ──────────────────────────────────────────────────────────────
 EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\2_candidate_events")
-OUTPUT_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\3_scoringhero_events2")
+OUTPUT_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\3_scoringhero_events")
 
 DECIMAL_COLS = ["start_sec", "end_sec", "duration_sec"]
 

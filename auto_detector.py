@@ -28,18 +28,14 @@ Gates:
             (Lucija's scoring) → verwijderd.
   Gate B — Post-event: >= 50% van de 15 s na het event is wake (Lucija's scoring)
             → patient werd wakker = volledige arousal, geen micro-arousal.
-  Gate C — VERWIJDERD. De ZMax heeft geen dedicated EMG kanaal. Het frontale
-            EEG signaal kan niet betrouwbaar als EMG proxy dienen voor REM
-            artefact uitsluiting. OXY_IR_AC wordt in de toekomst mogelijk
-            gebruikt als cardiovasculaire proxy.
 
 Output:
   EVENTS_DIR / GROUP / subject_id / candidate_events_{subject_id}_{night_id}.csv
 
 Gebruik:
-  python phase9_from_raw.py             # volledige batch
-  python phase9_from_raw.py --limit 3   # testen op 3 nachten
-  python phase9_from_raw.py --jobs 4    # 4 parallelle workers
+  python auto_detector.py             # volledige batch
+  python auto_detector.py --limit 3   # testen op 3 nachten
+  python auto_detector.py --jobs 4    # 4 parallelle workers
 =============================================================================
 """
 
@@ -112,9 +108,9 @@ SMOOTH_SEC           = 0.5
 BASELINE_SEC         = 90.0
 ACTIVATION_THRESHOLD = 2.0
 SPINDLE_THRESHOLD    = 2.0
-MERGE_GAP_SEC        = 1.0
-MIN_DUR_SEC          = 1.0
-MAX_DUR_SEC          = 15.0
+MERGE_GAP_SEC        = 3.0
+MIN_DUR_SEC          = 3.0
+MAX_DUR_SEC          = 20.0
 
 POST_EVENT_CHECK_SEC = 15.0
 POST_EVENT_WAKE_FRAC = 0.5
@@ -128,7 +124,6 @@ STAGE_REM  = 5
 EPOCH_SEC  = 30
 
 # ── Arousal score gewichten ───────────────────────────────────────────────────
-# emg_consistency verwijderd: ZMax heeft geen dedicated EMG kanaal.
 AROUSAL_SCORE_WEIGHTS = {
     "alpha_ratio":      0.30,
     "beta_ratio":       0.25,
@@ -540,13 +535,6 @@ def apply_duration_filter(events, sfreq=TARGET_SFREQ):
 # Gate B — Post-event wake check (Lucija's scoring)
 #   Kijk POST_EVENT_CHECK_SEC (15 s) na het event. Als >= POST_EVENT_WAKE_FRAC
 #   (50%) wake is → patient werd wakker = volledige arousal, geen micro-arousal.
-#
-# Gate C — VERWIJDERD.
-#   De ZMax heeft geen dedicated EMG kanaal. Het frontale EEG signaal biedt
-#   onvoldoende scheiding tussen corticale en musculaire activiteit om
-#   betrouwbaar REM artefacten uit te sluiten op basis van EMG proxy.
-#   REM events worden wel gelabeld in de output (stage_label = "REM") zodat
-#   downstream analyses hier zelf mee kunnen omgaan.
 # =============================================================================
 
 def apply_microarousal_gates(events, wake_mask, sfreq=TARGET_SFREQ):
@@ -588,7 +576,7 @@ def apply_microarousal_gates(events, wake_mask, sfreq=TARGET_SFREQ):
 # =============================================================================
 # SECTIE 9b — AROUSAL SCORE
 #
-# 5 componenten (emg_consistency verwijderd — geen dedicated EMG kanaal):
+# 5 componenten:
 #
 # 1. alpha_ratio      (0.30) sigmoid van gem. alpha ratio tijdens event
 # 2. beta_ratio       (0.25) sigmoid van gem. beta ratio tijdens event
