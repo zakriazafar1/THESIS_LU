@@ -71,7 +71,8 @@ except ImportError:
 
 RAW_ROOT   = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
 GROUPS     = ["NSR", "Prezens", "SAV"]
-EVENTS_DIR = Path(r"C:\Users\zafar\Documents\THESIS_OUTPUTS\2_candidate_events")
+EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\2_candidate_events")
+
 EVENTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # OXY_IR_AC wordt ingeladen maar nog niet gebruikt in de detectie of scoring.

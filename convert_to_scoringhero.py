@@ -26,8 +26,8 @@ from pathlib import Path
 import pandas as pd
 
 # ── Configuratie ──────────────────────────────────────────────────────────────
-EVENTS_DIR = Path(r"C:\Users\zafar\Documents\THESIS_OUTPUTS\2_candidate_events")
-OUTPUT_DIR = Path(r"C:\Users\zafar\Documents\THESIS_OUTPUTS\3_scoringhero_events")
+EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\2_candidate_events")
+OUTPUT_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\3_scoringhero_events2")
 
 DECIMAL_COLS = ["start_sec", "end_sec", "duration_sec"]
 
