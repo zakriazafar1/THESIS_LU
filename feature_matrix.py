@@ -13,23 +13,36 @@ ze dynamisch op i.p.v. hardcoded):
     GROUP/                                  bv. NSR, SAV, Prezens
       bnbd_<groep>_XXXXX/                   XXXXX = 5-cijferig subject nummer
         bnbd_<groep>_XXXXX_T0_N#/           N# = nacht-nummer, variabel
-          EEG L.edf
-          EEG R.edf
-          dX.edf
-          dY.edf
-          dZ.edf
-          OXY_IR_AC.edf                     (optioneel)
+          bnbd_<groep>_XXXXX_T0_N#_edf/
+            EEG L.edf
+            EEG R.edf
+            dX.edf
+            dY.edf
+            dZ.edf
+            OXY_IR_AC.edf                   (optioneel)
           sleepArchitecture/
             bnbd_<groep>_XXXXX_T0_N#.csv           <- hypnogram (R&K stages)  [optioneel]
             bnbd_<groep>_XXXXX_T0_N#_events.csv    <- Lucija's gescoorde events
 
 We zoeken ALLE "sleepArchitecture" mappen onder RAW_ROOT via rglob, dus het
 maakt niet uit hoe het subject-nummer of het nacht-nummer precies heet.
+De bijbehorende EDF-kanalen worden gezocht in de submap "<stem>_edf" naast
+de sleepArchitecture-map (met fallback naar de nachtmap zelf als die submap
+er toch niet is).
+
+BELANGRIJK — nog te verifiëren aannames:
+  - De naam van het events-bestand bevat "_events" (zoals eerder gezien:
+    bnbd_nsr_01272_T0_N3_events.csv, kolommen: event, start, stop, duration, channel)
+  - Het hypnogram-bestand heeft dezelfde naam als de nacht-map zelf, zonder
+    "_events" suffix (bv. bnbd_nsr_01272_T0_N2.csv)
+  - Als deze aannames niet kloppen, draai dit script eerst met --inspect
+    zodat je precies ziet welke bestanden er per nacht gevonden worden,
+    voordat je de volledige featureberekening draait.
 
 Gebruik:
-  python feature_matrix.py --inspect --limit 5     # eerst checken
-  python feature_matrix.py --limit 5                # test op 5 nachten
-  python feature_matrix.py                          # volledige run
+  python build_feature_matrix.py --inspect --limit 5     # eerst checken
+  python build_feature_matrix.py --limit 5                # test op 5 nachten
+  python build_feature_matrix.py                          # volledige run
 =============================================================================
 """
 
@@ -50,8 +63,9 @@ mne.set_log_level("ERROR")
 # CONFIGURATIE
 # =============================================================================
 
-RAW_ROOT = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
-OUTPUT_DIR = Path(r"C:\Users\zafar\Documents\THESIS_OUTPUTS\4_feature_matrix")
+RAW_ROOT   = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
+GROUPS     = ["NSR", "Prezens", "SAV"]
+EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices")
 
 TARGET_SFREQ = 128.0          # Hz, zelfde als in de detectiepipeline
 NOTCH_HZ = 50.0
@@ -78,10 +92,20 @@ def find_night_dirs(raw_root: Path) -> list[Path]:
     """
     Zoekt alle nacht-mappen door te zoeken naar 'sleepArchitecture' submappen.
     Dit omzeilt het probleem dat subject-nummer en nacht-nummer variabel zijn.
+    Filtert daarna op GROUPS, en houdt alleen T0_N# nachten over (geen T1, T2, ...).
     """
     arch_dirs = sorted(raw_root.rglob("sleepArchitecture"))
     night_dirs = [d.parent for d in arch_dirs if d.is_dir()]
-    return night_dirs
+
+    filtered = []
+    for nd in night_dirs:
+        group_in_path = next((g for g in GROUPS if g.upper() in [p.upper() for p in nd.parts]), None)
+        if group_in_path is None:
+            continue
+        if not re.search(r"_T0_N\d+$", nd.name):
+            continue
+        filtered.append(nd)
+    return filtered
 
 
 def parse_ids(night_dir: Path) -> dict:
@@ -146,28 +170,17 @@ def _read_csv_flex(path: Path) -> pd.DataFrame:
 def load_events(path: Path) -> pd.DataFrame:
     """
     Normaliseert Lucija's events-bestand naar kolommen: start_sec, end_sec, duration_sec.
-    Ondersteunt zowel het 'event/start/stop/duration/channel' formaat
-    als een 'onset/duration/description' formaat.
+    Vast formaat: event, start, stop, duration, channel.
     """
     df = _read_csv_flex(path)
 
-    if "start" in df.columns and "stop" in df.columns:
-        df = df.rename(columns={"start": "start_sec", "stop": "end_sec"})
-        if "duration" in df.columns:
-            df = df.rename(columns={"duration": "duration_sec"})
-        else:
-            df["duration_sec"] = df["end_sec"] - df["start_sec"]
-    elif "onset" in df.columns and "duration" in df.columns:
-        df = df.rename(columns={"onset": "start_sec", "duration": "duration_sec"})
-        df["end_sec"] = df["start_sec"] + df["duration_sec"]
-    else:
-        raise ValueError(
-            f"Onbekend events-formaat in {path.name}: kolommen zijn {list(df.columns)}"
-        )
+    df = df.rename(columns={"start": "start_sec", "stop": "end_sec", "duration": "duration_sec"})
 
     keep_cols = ["start_sec", "end_sec", "duration_sec"]
     if "channel" in df.columns:
         keep_cols.append("channel")
+    if "event" in df.columns:
+        keep_cols.append("event")
     return df[keep_cols].reset_index(drop=True)
 
 
@@ -208,9 +221,20 @@ def get_stage_at(hypnogram: pd.DataFrame | None, t_sec: float):
 # SECTIE 3 — EDF KANALEN INLADEN
 # =============================================================================
 
-def load_channel(night_dir: Path, name: str) -> tuple[np.ndarray, float] | None:
+def get_edf_dir(night_dir: Path, stem: str) -> Path:
+    """
+    Geeft de map terug waarin de EDF-kanaalbestanden staan.
+    Structuur: night_dir / <stem>_edf / EEG L.edf, EEG R.edf, ...
+    Valt terug op night_dir zelf als de _edf submap niet bestaat
+    (voor het geval de structuur toch per nacht verschilt).
+    """
+    edf_dir = night_dir / f"{stem}_edf"
+    return edf_dir if edf_dir.exists() else night_dir
+
+
+def load_channel(edf_dir: Path, name: str) -> tuple[np.ndarray, float] | None:
     """Laadt één EDF-kanaalbestand, geeft (data_in_uV, sfreq) terug of None."""
-    edf_path = night_dir / f"{name}.edf"
+    edf_path = edf_dir / f"{name}.edf"
     if not edf_path.exists():
         return None
     raw = mne.io.read_raw_edf(edf_path, preload=True, verbose=False)
@@ -258,23 +282,24 @@ def band_envelope(data: np.ndarray, sfreq: float, band: tuple[float, float]) -> 
     return np.abs(hilbert(filtered))
 
 
-def load_night_signals(night_dir: Path) -> dict:
+def load_night_signals(night_dir: Path, stem: str) -> dict:
     """Laadt en preprocesst alle beschikbare kanalen voor één nacht."""
     signals = {}
+    edf_dir = get_edf_dir(night_dir, stem)
 
     for ch in EEG_CHANNELS:
-        loaded = load_channel(night_dir, ch)
+        loaded = load_channel(edf_dir, ch)
         if loaded is not None:
             data, sfreq = loaded
             signals[ch] = preprocess_eeg(data, sfreq)
 
     for ch in MOTION_CHANNELS:
-        loaded = load_channel(night_dir, ch)
+        loaded = load_channel(edf_dir, ch)
         if loaded is not None:
             data, sfreq = loaded
             signals[ch] = _resample_scipy(data, sfreq)
 
-    loaded = load_channel(night_dir, OXY_CHANNEL)
+    loaded = load_channel(edf_dir, OXY_CHANNEL)
     if loaded is not None:
         data, sfreq = loaded
         signals[OXY_CHANNEL] = _resample_scipy(data, sfreq)
@@ -401,7 +426,9 @@ def process_night(night_dir: Path, ids: dict, inspect: bool = False) -> pd.DataF
         print(f"  hypnogram_file: {hyp_path}")
         if arch_dir.exists():
             print(f"  sleepArchitecture inhoud: {[f.name for f in arch_dir.iterdir()]}")
-        print(f"  edf bestanden in night_dir: {[f.name for f in night_dir.glob('*.edf')]}")
+        edf_dir = get_edf_dir(night_dir, ids["stem"])
+        print(f"  edf_dir       : {edf_dir}")
+        print(f"  edf bestanden : {[f.name for f in edf_dir.glob('*.edf')]}")
         return None
 
     if events_path is None:
@@ -413,7 +440,7 @@ def process_night(night_dir: Path, ids: dict, inspect: bool = False) -> pd.DataF
         return None
 
     hypnogram = load_hypnogram(hyp_path)
-    signals = load_night_signals(night_dir)
+    signals = load_night_signals(night_dir, ids["stem"])
 
     if "EEG L" not in signals and "EEG R" not in signals:
         print(f"  [SKIP] geen EEG-kanalen geladen voor {ids['stem']}")
@@ -464,6 +491,11 @@ def main():
             all_rows.append(df)
             print(f"  [OK] {ids['stem']}: {len(df)} events verwerkt")
 
+            # Per-nacht featurematrix apart opslaan
+            EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+            night_out_path = EVENTS_DIR / f"{ids['stem']}_fm.csv"
+            df.to_csv(night_out_path, index=False)
+
     if args.inspect:
         print("\nInspectie klaar. Pas find_events_file / load_events / load_hypnogram")
         print("aan als de gevonden bestandsnamen of kolommen niet kloppen.")
@@ -475,8 +507,8 @@ def main():
 
     feature_matrix = pd.concat(all_rows, ignore_index=True)
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUTPUT_DIR / "arousal_feature_matrix.csv"
+    EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = EVENTS_DIR / "arousal_feature_matrix.csv"
     feature_matrix.to_csv(out_path, index=False)
     print(f"\nFeaturematrix opgeslagen: {out_path}")
     print(f"Shape: {feature_matrix.shape}")
