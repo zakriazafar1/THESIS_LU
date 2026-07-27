@@ -72,8 +72,10 @@ NOTCH_HZ = 50.0
 HIGHPASS_HZ = 0.1
 LOWPASS_HZ = 35.0
 
-BASELINE_SEC = 90.0            # causale baseline-window vóór event-onset
-EEG_CHANNELS = ["EEG L", "EEG R"]
+EPOCH_SEC = 30.0               # standaard R&K/AASM epoch-lengte in het hypnogram (epoch 1 = t=0s)
+
+EEG_CHANNELS = ["EEG L", "EEG R"]      # zoals de EDF-bestandsnamen heten
+CHANNEL_LABELS = {"EEG L": "L", "EEG R": "R"}  # korte labels voor kolomnamen in de featurematrix
 MOTION_CHANNELS = ["dX", "dY", "dZ"]
 OXY_CHANNEL = "OXY_IR_AC"      # optioneel, wordt geladen indien aanwezig
 
@@ -84,15 +86,26 @@ BANDS = {
     "beta":  (16.0, 30.0),
 }
 
-# Decay time: post-event window waarin gezocht wordt naar terugkeer naar baseline-niveau
-DECAY_WINDOW_SEC = 60.0
-
 # Ridge-extractie (Morlet CWT): dominante frequentie over tijd binnen het event
 RIDGE_FREQ_MIN = 4.0    # Hz, ondergrens van het gescande frequentiebereik
 RIDGE_FREQ_MAX = 30.0   # Hz, bovengrens
 RIDGE_N_FREQS = 40      # aantal frequentiestappen tussen min en max
 RIDGE_N_CYCLES = None   # None = variabele n_cycles (max(3, freq/2)), zelfde default als ScoringHero
 RIDGE_PAD_SEC = 2.0     # padding aan weerszijden van het event, om FFT-wrap-around-randeffecten te beperken
+
+# Vaste kolomvolgorde van de featurematrix (per band: L_ratio, L_peak_ratio, R_ratio, R_peak_ratio,
+# dan de volgende band; daarna de mean_*_ratio's van alle banden naast elkaar).
+FEATURE_COLUMN_ORDER = (
+    ["subject_id", "group", "night_id", "stage_rk", "event_idx",
+     "start_sec", "end_sec", "duration_sec", "sec_prev_event"]
+    + [f"{label}_{band}_{metric}"
+       for band in BANDS
+       for label in CHANNEL_LABELS.values()
+       for metric in ("ratio", "peak_ratio")]
+    + [f"mean_{band}_ratio" for band in BANDS]
+    + ["ridge_onset_hz", "ridge_peak_hz", "ridge_end_hz", "ridge_drift"]
+    + ["motion_rms", "oxy_amp_ratio"]
+)
 
 # =============================================================================
 # SECTIE 1 — NACHTEN VINDEN EN IDENTIFICEREN
@@ -196,25 +209,26 @@ def load_events(path: Path) -> pd.DataFrame:
 
 def load_hypnogram(path: Path) -> pd.DataFrame | None:
     """
-    Laadt het hypnogram, indien aanwezig. Verwacht kolommen die epoch-tijd
-    en R&K-stage aangeven; namen kunnen variëren dus we zoeken op trefwoorden.
+    Laadt het hypnogram. Vast formaat, GEEN header:
+      kolom 1 = R&K-stage per epoch (0=wake, 1, 2, 3, 5=REM)
+      kolom 2 = ongebruikt (altijd 0 in de bestanden die we tot nu toe zagen)
+    Rij N (1-based) = epoch N; epoch 1 begint bij t=0s van de opname, en elke
+    epoch duurt EPOCH_SEC seconden (standaard R&K/AASM-epochlengte, 30s).
     Geeft None terug als het bestand niet gevonden of niet leesbaar is.
     """
     if path is None:
         return None
     try:
-        df = _read_csv_flex(path)
+        df = pd.read_csv(path, header=None, sep=None, engine="python")
     except Exception:
         return None
 
-    onset_col = next((c for c in df.columns if c in ("onset", "start", "start_sec", "time")), None)
-    stage_col = next((c for c in df.columns if "stage" in c or c in ("rk", "score")), None)
-
-    if onset_col is None or stage_col is None:
+    if df.shape[1] < 1 or len(df) == 0:
         return None
 
-    df = df.rename(columns={onset_col: "onset_sec", stage_col: "stage_rk"})
-    return df[["onset_sec", "stage_rk"]].sort_values("onset_sec").reset_index(drop=True)
+    stage = pd.to_numeric(df.iloc[:, 0], errors="coerce")
+    onset_sec = np.arange(len(df)) * EPOCH_SEC
+    return pd.DataFrame({"onset_sec": onset_sec, "stage_rk": stage.values})
 
 
 def get_stage_at(hypnogram: pd.DataFrame | None, t_sec: float):
@@ -307,6 +321,7 @@ def load_night_signals(night_dir: Path, stem: str) -> dict:
         loaded = load_channel(edf_dir, ch)
         if loaded is not None:
             data, sfreq = loaded
+            data = data - np.median(data)  # DC-removal: anders meet motion_rms grotendeels sensor-offset
             signals[ch] = _resample_scipy(data, sfreq)
 
     loaded = load_channel(edf_dir, OXY_CHANNEL)
@@ -385,43 +400,33 @@ def compute_morlet_tf(signal, srate, freqs, n_cycles=None, L2normalize=False):
 MIN_FILTER_SAMPLES = 64
 
 
-def compute_decay_time(sig: np.ndarray, sf: float, start_i: int, end_i: int,
-                        base_start_i: int) -> tuple[float, bool]:
+def compute_night_band_envelopes(signals: dict) -> dict:
     """
-    Decay time: tijd (in seconden) vanaf event-einde tot het moment waarop de
-    alpha+beta envelope (8-30Hz) terugzakt tot op/onder het baseline-niveau.
-    Spiegelbeeld van rise_time_sec, maar dan na het event i.p.v. erin.
+    Berekent voor elk EEG-kanaal en elke band de band-envelope over de HELE nacht,
+    één keer per nacht. Wordt hergebruikt voor zowel de whole-night baseline
+    (mediaan) als de during-event statistieken (via slicing), zodat er niet
+    per event opnieuw gefilterd hoeft te worden.
 
-    Geeft (decay_time_sec, decayed) terug. decayed=False betekent dat het
-    signaal binnen DECAY_WINDOW_SEC niet is teruggezakt tot baseline-niveau
-    (gecensureerde waarde -> decay_time_sec is dan de volledige windowlengte,
-    dus een ondergrens, geen exacte meting).
+    Key: (kanaal, band_naam) -> envelope-array (zelfde lengte als signals[kanaal])
     """
-    post_start_i = end_i
-    post_end_i = min(len(sig), end_i + int(DECAY_WINDOW_SEC * sf))
+    envelopes = {}
+    for ch in EEG_CHANNELS:
+        if ch not in signals:
+            continue
+        sig = signals[ch]
+        for band_name, band_range in BANDS.items():
+            envelopes[(ch, band_name)] = band_envelope(sig, TARGET_SFREQ, band_range)
+    return envelopes
 
-    if post_end_i <= post_start_i or base_start_i >= start_i:
-        return np.nan, False
 
-    baseline_segment = sig[base_start_i:start_i]
-    post_segment = sig[post_start_i:post_end_i]
-
-    if len(baseline_segment) < MIN_FILTER_SAMPLES or len(post_segment) < MIN_FILTER_SAMPLES:
-        return np.nan, False
-
-    env_baseline = band_envelope(baseline_segment, sf, (8.0, 30.0))
-    env_post = band_envelope(post_segment, sf, (8.0, 30.0))
-
-    if len(env_baseline) == 0 or len(env_post) == 0:
-        return np.nan, False
-
-    baseline_level = np.median(env_baseline)
-    below = np.where(env_post <= baseline_level)[0]
-
-    if len(below) > 0:
-        return below[0] / sf, True
-    else:
-        return len(env_post) / sf, False  # gecensureerd: nog niet terug binnen window
+def compute_night_baselines(night_envelopes: dict) -> dict:
+    """
+    Mediaan van elke band-envelope over de HELE nacht -> baseline-referentie
+    per (kanaal, band). Dit vervangt de vroegere lokale 90s-baseline vóór elk
+    event: alle events in dezelfde nacht worden nu vergeleken t.o.v. hetzelfde,
+    stabiele referentiepunt i.p.v. een steeds wisselend lokaal venster.
+    """
+    return {key: (np.median(env) if len(env) else np.nan) for key, env in night_envelopes.items()}
 
 
 def compute_ridge_features(sig: np.ndarray, sf: float, start_i: int, end_i: int) -> dict:
@@ -441,11 +446,10 @@ def compute_ridge_features(sig: np.ndarray, sf: float, start_i: int, end_i: int)
     het eigenlijke event-window.
     """
     empty = {
-        "ridge_freq_onset_hz": np.nan,
-        "ridge_freq_peak_hz": np.nan,
-        "ridge_freq_end_hz": np.nan,
-        "ridge_drift_hz_per_sec": np.nan,
-        "ridge_freq_std_hz": np.nan,
+        "ridge_onset_hz": np.nan,
+        "ridge_peak_hz": np.nan,
+        "ridge_end_hz": np.nan,
+        "ridge_drift": np.nan,
     }
 
     if end_i <= start_i or end_i > len(sig):
@@ -484,97 +488,79 @@ def compute_ridge_features(sig: np.ndarray, sf: float, start_i: int, end_i: int)
     peak_freq = ridge_freq[peak_time_idx]
 
     return {
-        "ridge_freq_onset_hz": onset_freq,
-        "ridge_freq_peak_hz": peak_freq,
-        "ridge_freq_end_hz": end_freq,
-        "ridge_drift_hz_per_sec": drift,
-        "ridge_freq_std_hz": np.std(ridge_freq),
+        "ridge_onset_hz": onset_freq,
+        "ridge_peak_hz": peak_freq,
+        "ridge_end_hz": end_freq,
+        "ridge_drift": drift,
     }
 
 
-def extract_event_features(signals: dict, start_sec: float, end_sec: float) -> dict:
+def safe_ratio(numerator: float, denominator: float) -> float:
+    """Deelt twee waarden, met NaN/0-bescherming."""
+    if numerator is None or denominator is None:
+        return np.nan
+    if np.isnan(numerator) or np.isnan(denominator) or denominator == 0:
+        return np.nan
+    return numerator / denominator
+
+
+def extract_event_features(signals: dict, start_sec: float, end_sec: float,
+                            night_envelopes: dict, night_baselines: dict,
+                            oxy_night_std: float | None) -> dict:
     """
     Berekent features voor één event, gebaseerd op de EEG-signalen.
-    Baseline = causale mediaan van de band-envelope in de BASELINE_SEC vóór het event.
+
+    Band-ratio's: tijdens-event gemiddelde/piek gedeeld door de MEDIAAN VAN
+    DE HELE NACHT (night_baselines) voor dat kanaal+band, in plaats van een
+    lokale 90s-baseline vóór het event. Alle events in dezelfde nacht worden
+    zo tegen hetzelfde, stabiele referentiepunt afgezet:
+
+        {band}_ratio = tijdens-event gemiddelde amplitude / mediane amplitude over de hele nacht
+
+    De tijdens-event amplitude-waarden worden gesliced uit de al voor de hele
+    nacht berekende band-envelope (night_envelopes), i.p.v. opnieuw een
+    bandpass-filter op het korte event-segment te draaien — dat voorkomt
+    filter-randeffecten op korte segmenten én is sneller.
+
+    oxy_amp_ratio gebruikt dezelfde whole-night-logica: tijdens-event std
+    van het OXY_IR_AC-signaal gedeeld door de std over de HELE nacht
+    (oxy_night_std, één keer per nacht berekend), i.p.v. een lokale
+    90s-baseline.
     """
     feats = {}
     sf = TARGET_SFREQ
 
     start_i = int(start_sec * sf)
     end_i = int(end_sec * sf)
-    base_start_i = max(0, int((start_sec - BASELINE_SEC) * sf))
-
-    eeg_band_data = {}  # per kanaal, per band: (baseline_median, during_mean, during_peak, during_std)
 
     for ch in EEG_CHANNELS:
+        label = CHANNEL_LABELS[ch]
         if ch not in signals:
             continue
         sig = signals[ch]
-        if end_i > len(sig) or start_i >= end_i or base_start_i >= start_i:
+        if end_i > len(sig) or start_i >= end_i:
             continue
 
         for band_name, band_range in BANDS.items():
-            baseline_segment = sig[base_start_i:start_i]
-            event_segment = sig[start_i:end_i]
+            env_full = night_envelopes.get((ch, band_name))
+            baseline_med = night_baselines.get((ch, band_name), np.nan)
 
-            env_baseline = band_envelope(baseline_segment, sf, band_range)
-            env_event = band_envelope(event_segment, sf, band_range)
+            if env_full is not None and end_i <= len(env_full):
+                env_event = env_full[start_i:end_i]
+                during_mean = np.mean(env_event) if len(env_event) else np.nan
+                during_peak = np.max(env_event) if len(env_event) else np.nan
+            else:
+                during_mean = during_peak = np.nan
 
-            baseline_med = np.median(env_baseline) if len(env_baseline) else np.nan
-            during_mean = np.mean(env_event) if len(env_event) else np.nan
-            during_peak = np.max(env_event) if len(env_event) else np.nan
-            during_std = np.std(env_event) if len(env_event) else np.nan
-
-            eeg_band_data[(ch, band_name)] = (baseline_med, during_mean, during_peak, during_std)
-
-            ratio = during_mean / baseline_med if baseline_med not in (0, np.nan) and not np.isnan(baseline_med) else np.nan
-            feats[f"{ch}_{band_name}_ratio"] = ratio
-            feats[f"{ch}_{band_name}_peak_ratio"] = (
-                during_peak / baseline_med if baseline_med not in (0, np.nan) and not np.isnan(baseline_med) else np.nan
-            )
-            feats[f"{ch}_{band_name}_cv"] = (
-                during_std / during_mean if during_mean not in (0, np.nan) and not np.isnan(during_mean) else np.nan
-            )
+            feats[f"{label}_{band_name}_ratio"] = safe_ratio(during_mean, baseline_med)
+            feats[f"{label}_{band_name}_peak_ratio"] = safe_ratio(during_peak, baseline_med)
 
     # Gemiddelde over kanalen (voor als er maar 1 kanaal beschikbaar is, of ter samenvatting)
     for band_name in BANDS:
-        ratios = [feats.get(f"{ch}_{band_name}_ratio") for ch in EEG_CHANNELS if f"{ch}_{band_name}_ratio" in feats]
+        ratios = [feats.get(f"{CHANNEL_LABELS[ch]}_{band_name}_ratio") for ch in EEG_CHANNELS
+                  if f"{CHANNEL_LABELS[ch]}_{band_name}_ratio" in feats]
         ratios = [r for r in ratios if r is not None and not (isinstance(r, float) and np.isnan(r))]
         feats[f"mean_{band_name}_ratio"] = np.mean(ratios) if ratios else np.nan
-
-    # Bilateraliteit: hoe gelijk zijn L en R tijdens het event (alpha+beta band)
-    if "EEG L" in signals and "EEG R" in signals:
-        l_sig = signals["EEG L"][start_i:end_i] if end_i <= len(signals["EEG L"]) else None
-        r_sig = signals["EEG R"][start_i:end_i] if end_i <= len(signals["EEG R"]) else None
-        if l_sig is not None and r_sig is not None and len(l_sig) > 1 and len(r_sig) > 1:
-            feats["bilateral_corr"] = np.corrcoef(l_sig, r_sig)[0, 1]
-        else:
-            feats["bilateral_corr"] = np.nan
-    else:
-        feats["bilateral_corr"] = np.nan
-
-    # Rise time: tijd tot piek van de alpha+beta envelope binnen het event
-    if "EEG L" in signals:
-        sig = signals["EEG L"]
-        if end_i <= len(sig) and start_i < end_i:
-            seg = sig[start_i:end_i]
-            env = band_envelope(seg, sf, (8.0, 30.0))
-            peak_idx = np.argmax(env)
-            feats["rise_time_sec"] = peak_idx / sf
-        else:
-            feats["rise_time_sec"] = np.nan
-    else:
-        feats["rise_time_sec"] = np.nan
-
-    # Decay time: spiegelbeeld van rise_time_sec, tijd na het event tot terugkeer naar baseline
-    if "EEG L" in signals:
-        sig = signals["EEG L"]
-        decay_time_sec, decayed = compute_decay_time(sig, sf, start_i, end_i, base_start_i)
-        feats["decay_time_sec"] = decay_time_sec
-        feats["decay_censored"] = int(not decayed)  # 1 = niet teruggekeerd binnen DECAY_WINDOW_SEC
-    else:
-        feats["decay_time_sec"] = np.nan
-        feats["decay_censored"] = np.nan
 
     # Ridge-features (Morlet CWT): dominante frequentie over tijd binnen het event
     if "EEG L" in signals:
@@ -583,11 +569,10 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float) -> d
         feats.update(ridge_feats)
     else:
         feats.update({
-            "ridge_freq_onset_hz": np.nan,
-            "ridge_freq_peak_hz": np.nan,
-            "ridge_freq_end_hz": np.nan,
-            "ridge_drift_hz_per_sec": np.nan,
-            "ridge_freq_std_hz": np.nan,
+            "ridge_onset_hz": np.nan,
+            "ridge_peak_hz": np.nan,
+            "ridge_end_hz": np.nan,
+            "ridge_drift": np.nan,
         })
 
     # Motion features (accelerometer), als proxy voor beweging tijdens het event
@@ -600,13 +585,13 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float) -> d
                 motion_rms.append(np.sqrt(np.mean(seg ** 2)))
     feats["motion_rms"] = np.mean(motion_rms) if motion_rms else np.nan
 
-    # Pulse-oximetrie amplitude verandering (cardiovasculaire arousal proxy), indien beschikbaar
-    if OXY_CHANNEL in signals:
+    # Pulse-oximetrie amplitude-ratio (cardiovasculaire arousal proxy): tijdens-event std
+    # gedeeld door de std over de HELE nacht, indien het OXY-kanaal beschikbaar is.
+    if OXY_CHANNEL in signals and oxy_night_std is not None:
         sig = signals[OXY_CHANNEL]
-        if base_start_i < start_i and end_i <= len(sig) and start_i < end_i:
-            baseline_amp = np.std(sig[base_start_i:start_i])
-            event_amp = np.std(sig[start_i:end_i])
-            feats["oxy_amp_ratio"] = event_amp / baseline_amp if baseline_amp else np.nan
+        if end_i <= len(sig) and start_i < end_i:
+            event_std = np.std(sig[start_i:end_i])
+            feats["oxy_amp_ratio"] = safe_ratio(event_std, oxy_night_std)
         else:
             feats["oxy_amp_ratio"] = np.nan
     else:
@@ -651,10 +636,17 @@ def process_night(night_dir: Path, ids: dict, inspect: bool = False) -> pd.DataF
         print(f"  [SKIP] geen EEG-kanalen geladen voor {ids['stem']}")
         return None
 
+    # Whole-night band-envelopes en -baselines: één keer per nacht berekenen,
+    # daarna hergebruiken voor elk event (i.p.v. per event opnieuw filteren).
+    night_envelopes = compute_night_band_envelopes(signals)
+    night_baselines = compute_night_baselines(night_envelopes)
+    oxy_night_std = np.std(signals[OXY_CHANNEL]) if OXY_CHANNEL in signals else None
+
     rows = []
     prev_end = None
     for i, ev in events.iterrows():
-        feats = extract_event_features(signals, ev["start_sec"], ev["end_sec"])
+        feats = extract_event_features(signals, ev["start_sec"], ev["end_sec"],
+                                        night_envelopes, night_baselines, oxy_night_std)
         feats.update({
             "subject_id": ids["subject_id"],
             "group": ids["group"],
@@ -664,12 +656,13 @@ def process_night(night_dir: Path, ids: dict, inspect: bool = False) -> pd.DataF
             "end_sec": ev["end_sec"],
             "duration_sec": ev["duration_sec"],
             "stage_rk": get_stage_at(hypnogram, ev["start_sec"]),
-            "time_since_prev_event_sec": (ev["start_sec"] - prev_end) if prev_end is not None else np.nan,
+            "sec_prev_event": (ev["start_sec"] - prev_end) if prev_end is not None else np.nan,
         })
         rows.append(feats)
         prev_end = ev["end_sec"]
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    return df[[c for c in FEATURE_COLUMN_ORDER if c in df.columns]]
 
 
 def main():
@@ -696,10 +689,12 @@ def main():
             all_rows.append(df)
             print(f"  [OK] {ids['stem']}: {len(df)} events verwerkt")
 
-            # Per-nacht featurematrix apart opslaan (Excel-NL vriendelijk: ; als scheiding, , als decimaal)
+            # Per-nacht featurematrix apart opslaan (standaard CSV: komma-scheiding, punt-decimaal —
+            # NIET meer Excel-NL-formaat, want dat corrumpeert bij openen/opslaan met een niet-NL
+            # Excel-locale-instelling: decimale komma's worden dan als duizendtal-scheiding gelezen)
             EVENTS_DIR.mkdir(parents=True, exist_ok=True)
             night_out_path = EVENTS_DIR / f"{ids['stem']}_fm.csv"
-            df.to_csv(night_out_path, index=False, sep=";", decimal=",")
+            df.to_csv(night_out_path, index=False, float_format="%.3f")
 
     if args.inspect:
         print("\nInspectie klaar. Pas find_events_file / load_events / load_hypnogram")
@@ -714,7 +709,7 @@ def main():
 
     EVENTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = EVENTS_DIR / "arousal_feature_matrix.csv"
-    feature_matrix.to_csv(out_path, index=False, sep=";", decimal=",")
+    feature_matrix.to_csv(out_path, index=False, float_format="%.3f")
     print(f"\nFeaturematrix opgeslagen: {out_path}")
     print(f"Shape: {feature_matrix.shape}")
 
