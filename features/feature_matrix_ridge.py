@@ -65,14 +65,14 @@ mne.set_log_level("ERROR")
 
 RAW_ROOT   = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
 GROUPS     = ["NSR", "Prezens", "SAV"]
-EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. feature matrices ridge")
+EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institutpye for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. feature matrices ridge")
 
-TARGET_SFREQ = 128.0          # Hz, zelfde als in de detectiepipeline
+TARGET_SFREQ = 128.0            # sampling frequency 
 NOTCH_HZ = 50.0
 HIGHPASS_HZ = 0.1
 LOWPASS_HZ = 35.0
 
-EPOCH_SEC = 30.0               # standaard R&K/AASM epoch-lengte in het hypnogram (epoch 1 = t=0s)
+EPOCH_SEC = 30.0               # epoch 1 = t=0s
 
 EEG_CHANNELS = ["EEG L", "EEG R"]      # zoals de EDF-bestandsnamen heten
 CHANNEL_LABELS = {"EEG L": "L", "EEG R": "R"}  # korte labels voor kolomnamen in de featurematrix
