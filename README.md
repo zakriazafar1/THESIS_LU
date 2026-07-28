@@ -1,2 +1,4 @@
 # THESIS_LU
-Thesis Leiden University - MA detector 
+Thesis Leiden University - Zakria Zafar 
+
+Arousal clustering 
