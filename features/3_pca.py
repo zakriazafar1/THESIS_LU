@@ -59,12 +59,12 @@ import matplotlib.pyplot as plt
 # =============================================================================
 
 FEATURE_SELECTION_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\correlation"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. feature selection\correlation"
 )
 # Default input = output van correlation_selection.py
 INPUT_MATRIX = FEATURE_SELECTION_DIR / "reduced_features_events.csv"
 OUTPUT_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\pca"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. feature selection\pca"
 )
 
 # Kolommen die NOOIT als PCA-feature meedoen (identifiers / positie)

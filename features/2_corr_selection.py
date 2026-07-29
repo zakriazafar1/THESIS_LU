@@ -1,13 +1,11 @@
 """
 =============================================================================
-correlation_selection.py   (stap 1 van 2)
+2_corr_selection.py
 
-Eerste helft van het vorige pca_features.py, losgetrokken: alleen de
-correlatie-check en feature-selectie. Doel: van de volledige featurematrix
-naar een REDUCED FEATURE SET zonder sterk onderling gecorreleerde features,
-in originele/interpreteerbare eenheden (dus GEEN PCA hier — dat staat nu in
-het losse script pca_reduction.py, dat als input de output van dit script
-kan gebruiken, of desgewenst de volledige featurematrix).
+Doel: van de volledige featurematrix naar een REDUCED FEATURE SET zonder sterk
+onderling gecorreleerde features, in originele/interpreteerbare eenheden
+(dus GEEN PCA hier — dat staat nu in het losse script pca.py, dat als input
+de output van dit script kan gebruiken, of desgewenst de volledige featurematrix).
 
 Stappen:
   1. Missing/variantie-filter: features met te veel missing data of
@@ -17,12 +15,26 @@ Stappen:
      features zelf (op correlatie-afstand) om groepjes "zeggen hetzelfde"
      features te vinden. Per groep wordt de feature met de hoogste
      standaarddeviatie als representant gekozen.
+  3. Pooled vs. within-subject correlatie: dezelfde correlatie-paren opnieuw
+     berekend NA het aftrekken van het subject-gemiddelde per feature. Een
+     paar dat pooled sterk correleert maar within-subject niet (of andersom)
+     wijst op een Simpson's-paradox-achtig pooling-effect (bv. iemand met
+     over de hele linie hogere band-power in elke band, wat de gepoolde
+     correlatie tussen banden opblaast zonder dat het iets zegt over hoe
+     een individueel event zich onderscheidt).
+  4. VIF (variance inflation factor) per feature: vangt multivariate
+     redundantie die een paarsgewijze correlatiematrix mist (3+ features die
+     samen bijna volledig voorspelbaar zijn uit elkaar, zonder dat een los
+     paar boven de threshold komt).
+  5. Scatterplots van de sterkst gecorreleerde paren, want eenzelfde
+     correlatiecoëfficiënt kan bij heel verschillende onderliggende
+     relaties horen (Anscombe's quartet) — niet blind op het getal varen.
 
-BELANGRIJK — nog te verifiëren aannames:
-  - Input is het output-bestand van build_feature_matrix.py
+BELANGRIJK:
+  - Input is het output-bestand van 1_feature_matrix.py
     (arousal_feature_matrix.csv). Check of INPUT_MATRIX nog klopt.
-  - Output-map is als nieuwe submap "3. feature selection" naast
-    "2. feature matrices ridge" gezet, puur als aanname op de bestaande
+  - Output-map is als nieuwe submap "2. feature selection" naast
+    "1. feature matrices" gezet, puur als aanname op de bestaande
     naamgeving-conventie. Pas OUTPUT_DIR aan indien gewenst.
   - subject_id / group / night_id / event_idx / start_sec / end_sec worden
     NOOIT als clustering-feature meegenomen (identifiers/positie, geen
@@ -30,12 +42,16 @@ BELANGRIJK — nog te verifiëren aannames:
     feature. stage_rk en sec_prev_event zijn kandidaat-context-features:
     die WORDEN standaard meegenomen, maar zijn met --drop-context uit te
     sluiten als je liever puur op signaal-morfologie clustert.
-  - Draai eerst met --inspect om de missing/variantie/correlatie-tabellen
-    te zien voordat je de volledige run (bestanden wegschrijven) doet.
+  - De within-subject vergelijking (stap 3) en VIF (stap 4) hebben genoeg
+    subjects/features nodig om zinvol te zijn. Bij te weinig subjects
+    (< 2 met >1 event) of een singuliere correlatiematrix print het script
+    een waarschuwing i.p.v. te crashen.
+  - Draai eerst met --inspect om de missing/variantie/correlatie/VIF-tabellen
+    te zien voordat je de volledige run (bestanden + plots wegschrijven) doet.
 
 Gebruik:
-  python correlation_selection.py --inspect        # eerst checken
-  python correlation_selection.py                  # volledige run
+  python 2_corr_selection.py --inspect        # eerst checken
+  python 2_corr_selection.py                  # volledige run
 =============================================================================
 """
 
@@ -55,13 +71,14 @@ import matplotlib.pyplot as plt
 # =============================================================================
 
 FEATURE_MATRIX_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. feature matrices ridge"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices"
 )
 INPUT_MATRIX = FEATURE_MATRIX_DIR / "arousal_feature_matrix.csv"
-OUTPUT_DIR = FEATURE_MATRIX_DIR.parent / "3. feature selection\correlation"
+OUTPUT_DIR = FEATURE_MATRIX_DIR.parent / "2. feature selection\correlation"
 
 # Kolommen die NOOIT als clustering-feature meedoen (identifiers / positie)
 ID_COLS = ["subject_id", "group", "night_id", "event_idx", "start_sec", "end_sec"]
+SUBJECT_COL = "subject_id"
 
 # Kandidaat context-features: inhoudelijk mogelijk relevant, maar geen
 # signaal-morfologie. Los te herkennen in de output zodat je bewust kan
@@ -77,6 +94,13 @@ MIN_STD = 1e-8                # (bijna) constante features -> eruit
 # Correlatie-instellingen
 CORR_METHOD = "spearman"      # robuuster dan pearson voor ratio-achtige features die niet normaal verdeeld zijn
 CORR_THRESHOLD = 0.85         # boven deze |correlatie| -> features worden als "redundant" gezien
+POOLED_VS_WITHIN_DIFF_FLAG = 0.15   # |pooled - within| boven dit -> gemarkeerd als mogelijk pooling-effect
+
+# VIF-instelling
+VIF_FLAG_THRESHOLD = 5.0      # gangbare vuistregel: VIF > 5 a 10 wijst op problematische multicollineariteit
+
+# Scatterplots van de N sterkst gecorreleerde paren
+N_SCATTER_PAIRS = 12
 
 pd.set_option("display.width", 140)
 pd.set_option("display.max_rows", 100)
@@ -153,7 +177,7 @@ def filter_missing_and_constant(df: pd.DataFrame, feature_cols: list[str]) -> tu
 
 
 # =============================================================================
-# SECTIE 3 — CORRELATIE-CHECK
+# SECTIE 3 — CORRELATIE-CHECK (POOLED)
 # =============================================================================
 
 def compute_correlation_matrix(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
@@ -216,6 +240,117 @@ def pick_cluster_representatives(cluster_assignment: pd.Series,
     return pd.DataFrame(rows).sort_values("n_members", ascending=False).reset_index(drop=True)
 
 
+# =============================================================================
+# SECTIE 4 — POOLED VS. WITHIN-SUBJECT CORRELATIE
+# =============================================================================
+
+def compute_within_subject_correlation(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame | None:
+    """
+    Trekt per subject het gemiddelde van elke feature af (within-subject
+    centering) voordat er gecorreleerd wordt. Dit voorkomt dat between-subject
+    verschillen (iemand met over de hele linie hogere/lagere band-power in
+    elke band) de correlatiematrix domineren -- een gepoolde correlatie kan
+    zo'n gedeeld "hoog/laag"-niveau tussen subjects aanzien voor een relatie
+    tussen de features zelf op event-niveau (Simpson's paradox).
+
+    Geeft None terug als SUBJECT_COL ontbreekt of er te weinig subjects met
+    >1 event zijn om hier iets zinnigs over te zeggen.
+    """
+    if SUBJECT_COL not in df.columns:
+        print(f"  [WAARSCHUWING] kolom '{SUBJECT_COL}' niet gevonden -- within-subject "
+              f"vergelijking wordt overgeslagen.")
+        return None
+
+    events_per_subject = df.groupby(SUBJECT_COL).size()
+    n_usable_subjects = (events_per_subject > 1).sum()
+    if n_usable_subjects < 2:
+        print(f"  [WAARSCHUWING] maar {n_usable_subjects} subject(en) met >1 event -- "
+              f"within-subject centering is hier niet zinvol (te weinig within-subject "
+              f"variatie om op te correleren), wordt overgeslagen.")
+        return None
+
+    group_means = df.groupby(SUBJECT_COL)[feature_cols].transform("mean")
+    centered = df[feature_cols] - group_means
+    return centered.corr(method=CORR_METHOD)
+
+
+def compare_pooled_vs_within(corr_pairs_pooled: pd.DataFrame,
+                              within_corr: pd.DataFrame | None) -> pd.DataFrame | None:
+    """
+    Zet voor elk paar boven de threshold in de gepoolde matrix de
+    within-subject-correlatie ernaast. Een groot verschil (zie
+    POOLED_VS_WITHIN_DIFF_FLAG) betekent dat de gepoolde correlatie deels of
+    vooral een between-subject-effect is, en dus voorzichtig geinterpreteerd
+    moet worden als het gaat om redundantie tussen events.
+    """
+    if within_corr is None or len(corr_pairs_pooled) == 0:
+        return None
+    rows = []
+    for _, r in corr_pairs_pooled.iterrows():
+        a, b, pooled_r = r["feature_a"], r["feature_b"], r["corr"]
+        within_r = within_corr.loc[a, b] if (a in within_corr.index and b in within_corr.columns) else np.nan
+        diff = abs(pooled_r - within_r) if pd.notna(within_r) else np.nan
+        rows.append({"feature_a": a, "feature_b": b, "pooled_corr": pooled_r,
+                      "within_subject_corr": within_r, "abs_diff": diff,
+                      "mogelijk_pooling_effect": (diff > POOLED_VS_WITHIN_DIFF_FLAG) if pd.notna(diff) else False})
+    out = pd.DataFrame(rows)
+    return out.sort_values("abs_diff", ascending=False, na_position="last").reset_index(drop=True)
+
+
+# =============================================================================
+# SECTIE 5 — VIF (MULTIVARIATE REDUNDANTIE)
+# =============================================================================
+
+def compute_vif(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
+    """
+    VIF per feature = 1 / (1 - R^2), waarbij R^2 komt uit het regresseren van
+    die feature op alle overige features. Vangt multivariate redundantie die
+    een paarsgewijze correlatiematrix mist: 3+ features die SAMEN bijna
+    volledig voorspelbaar zijn uit elkaar, zonder dat een los paar boven de
+    correlatie-threshold hoeft te komen. Vuistregel: VIF > 5 a 10 wijst op
+    problematische multicollineariteit.
+
+    Berekend via VIF_i = diag(inverse(pearson-correlatiematrix))_i -- een
+    bekende kortere weg die equivalent is aan losse regressies per feature.
+    Dit is bewust Pearson (VIF is een lineair-regressie-concept), ook al
+    gebruiken we Spearman voor de hoofd-correlatiematrix hierboven.
+
+    Missing values worden alleen voor DEZE berekening per feature met de
+    mediaan geimputeerd (VIF kan niet met NaN's rekenen) -- dat raakt verder
+    niets anders in het script/de output.
+    """
+    imputed = df[feature_cols].apply(lambda s: s.fillna(s.median()))
+    # kolommen die na imputatie alsnog constant zijn (bv. altijd NaN geweest)
+    # geven een singuliere matrix -> zouden er via filter_missing_and_constant
+    # al uit moeten zijn, maar voor de zekerheid hier ook nog een check
+    zero_var = imputed.columns[imputed.std() < MIN_STD].tolist()
+    usable = [c for c in feature_cols if c not in zero_var]
+    if zero_var:
+        print(f"  [WAARSCHUWING] {zero_var} hebben geen spreiding na imputatie, "
+              f"uitgesloten van VIF-berekening.")
+
+    pearson_corr = imputed[usable].corr(method="pearson").values
+    try:
+        inv_corr = np.linalg.inv(pearson_corr)
+        singular = False
+    except np.linalg.LinAlgError:
+        inv_corr = np.linalg.pinv(pearson_corr)
+        singular = True
+
+    if singular:
+        print("  [WAARSCHUWING] Pearson-correlatiematrix is singulier (perfecte multicollineariteit) "
+              "-- pseudo-inverse gebruikt, VIF-waarden hieronder zijn dan indicatief/een ondergrens.")
+
+    vif = np.diag(inv_corr)
+    out = pd.DataFrame({"VIF": vif}, index=usable).sort_values("VIF", ascending=False)
+    out["boven_threshold"] = out["VIF"] > VIF_FLAG_THRESHOLD
+    return out
+
+
+# =============================================================================
+# SECTIE 6 — PLOTS
+# =============================================================================
+
 def plot_correlation_heatmap(corr: pd.DataFrame, out_path: Path):
     fig, ax = plt.subplots(figsize=(max(8, 0.4 * len(corr.columns)), max(6, 0.4 * len(corr.columns))))
     im = ax.imshow(corr.values, vmin=-1, vmax=1, cmap="RdBu_r")
@@ -244,14 +379,46 @@ def plot_dendrogram(Z, labels, out_path: Path, threshold: float):
     plt.close(fig)
 
 
+def plot_top_pair_scatterplots(df: pd.DataFrame, corr_pairs: pd.DataFrame, out_path: Path,
+                                n: int = N_SCATTER_PAIRS):
+    """
+    Scatterplot per sterk gecorreleerd paar (de n sterkste), zodat je zelf
+    ziet wat voor relatie er achter het getal zit -- eenzelfde correlatie-
+    coefficient kan bij heel verschillende vormen horen (lineair, gebogen,
+    1 uitbijter die alles trekt, twee subgroepen die toevallig op een lijn
+    liggen). Puur visuele check, geen extra statistiek.
+    """
+    n = min(n, len(corr_pairs))
+    if n == 0:
+        return
+    ncols = 4
+    nrows = int(np.ceil(n / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3.5 * nrows))
+    axes = np.atleast_1d(axes).reshape(-1)
+    for i in range(n):
+        row = corr_pairs.iloc[i]
+        a, b, r = row["feature_a"], row["feature_b"], row["corr"]
+        ax = axes[i]
+        ax.scatter(df[a], df[b], s=8, alpha=0.4, edgecolors="none")
+        ax.set_xlabel(a, fontsize=7)
+        ax.set_ylabel(b, fontsize=7)
+        ax.set_title(f"r = {r:.2f}", fontsize=8)
+        ax.tick_params(labelsize=6)
+    for j in range(n, len(axes)):
+        axes[j].axis("off")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
 # =============================================================================
-# SECTIE 4 — HOOFDLOOP
+# SECTIE 7 — HOOFDLOOP
 # =============================================================================
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--inspect", action="store_true",
-                         help="Alleen diagnostiek printen (missing/variantie/correlatie-paren), niets wegschrijven")
+                         help="Alleen diagnostiek printen (missing/variantie/correlatie/VIF), niets wegschrijven")
     parser.add_argument("--input", type=Path, default=INPUT_MATRIX)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--corr-threshold", type=float, default=CORR_THRESHOLD)
@@ -282,10 +449,10 @@ def main():
         print(f"  - {f}: {reason}")
     print(f"{len(clean_cols)} features over na deze filter.")
 
-    # --- Stap 2: correlatie-check ---
+    # --- Stap 2: correlatie-check (pooled) ---
     corr = compute_correlation_matrix(df, clean_cols)
     corr_pairs = list_correlated_pairs(corr, args.corr_threshold)
-    print(f"\n--- Sterk gecorreleerde paren (|{CORR_METHOD}| > {args.corr_threshold}) ---")
+    print(f"\n--- Sterk gecorreleerde paren, pooled (|{CORR_METHOD}| > {args.corr_threshold}) ---")
     print(corr_pairs if len(corr_pairs) else "(geen)")
 
     cluster_assignment, Z = cluster_correlated_features(corr, args.corr_threshold)
@@ -298,10 +465,28 @@ def main():
     print(f"\nReduced feature set ({len(reduced_feature_cols)} features, "
           f"1 per correlatie-cluster): {reduced_feature_cols}")
 
+    # --- Stap 3: pooled vs. within-subject correlatie ---
+    print(f"\n--- Pooled vs. within-subject correlatie ---")
+    within_corr = compute_within_subject_correlation(df, clean_cols)
+    comparison = compare_pooled_vs_within(corr_pairs, within_corr)
+    if comparison is not None:
+        flagged = comparison[comparison["mogelijk_pooling_effect"]]
+        print(f"{len(flagged)} / {len(comparison)} paren met |pooled - within| > "
+              f"{POOLED_VS_WITHIN_DIFF_FLAG} (mogelijk (deels) between-subject effect):")
+        print(flagged.head(15) if len(flagged) else "(geen)")
+
+    # --- Stap 4: VIF ---
+    print(f"\n--- VIF per feature (top 10, hoe hoger hoe meer multivariate redundantie) ---")
+    vif_table = compute_vif(df, clean_cols)
+    print(vif_table.head(10))
+    n_flagged_vif = int(vif_table["boven_threshold"].sum())
+    print(f"{n_flagged_vif} / {len(vif_table)} features met VIF > {VIF_FLAG_THRESHOLD}")
+
     if args.inspect:
-        print("\nInspectie klaar. Pas CORR_THRESHOLD / MAX_MISSING_FRAC / MIN_STD aan "
-              "als de filtering niet klopt, of check CONTEXT_FEATURE_COLS, voordat je "
-              "de volledige run (bestanden wegschrijven) doet.")
+        print("\nInspectie klaar. Pas CORR_THRESHOLD / MAX_MISSING_FRAC / MIN_STD / "
+              "VIF_FLAG_THRESHOLD aan als de filtering niet klopt, of check "
+              "CONTEXT_FEATURE_COLS, voordat je de volledige run (bestanden + plots "
+              "wegschrijven) doet.")
         return
 
     # --- Output wegschrijven ---
@@ -309,22 +494,34 @@ def main():
 
     missing.to_csv(args.output_dir / "missingness_per_feature.csv")
     variance.to_csv(args.output_dir / "variance_per_feature.csv")
-    corr.to_csv(args.output_dir / "correlation_matrix.csv")
-    corr_pairs.to_csv(args.output_dir / "correlated_pairs.csv", index=False)
+    corr.to_csv(args.output_dir / "correlation_matrix_pooled.csv")
+    corr_pairs.to_csv(args.output_dir / "correlated_pairs_pooled.csv", index=False)
     reps_table.to_csv(args.output_dir / "feature_clusters.csv", index=False)
+    vif_table.to_csv(args.output_dir / "vif_per_feature.csv")
+
+    if within_corr is not None:
+        within_corr.to_csv(args.output_dir / "correlation_matrix_within_subject.csv")
+    if comparison is not None:
+        comparison.to_csv(args.output_dir / "pooled_vs_within_subject_comparison.csv", index=False)
 
     # id-kolommen + reduced (originele, niet-getransformeerde) features
     reduced_out = pd.concat([df[[c for c in ID_COLS if c in df.columns]].reset_index(drop=True),
                               df[reduced_feature_cols].reset_index(drop=True)], axis=1)
     reduced_out.to_csv(args.output_dir / "reduced_features_events.csv", index=False, float_format="%.4f")
 
-    plot_correlation_heatmap(corr, args.output_dir / "correlation_heatmap.png")
+    plot_correlation_heatmap(corr, args.output_dir / "correlation_heatmap_pooled.png")
     plot_dendrogram(Z, list(corr.columns), args.output_dir / "feature_dendrogram.png", args.corr_threshold)
+    plot_top_pair_scatterplots(df, corr_pairs, args.output_dir / "top_correlated_pairs_scatter.png")
+    if within_corr is not None:
+        plot_correlation_heatmap(within_corr, args.output_dir / "correlation_heatmap_within_subject.png")
 
     print(f"\nAlle output weggeschreven naar: {args.output_dir}")
-    print("  - reduced_features_events.csv  -> originele features, 1 per correlatie-cluster")
+    print("  - reduced_features_events.csv          -> originele features, 1 per correlatie-cluster")
     print("    (gebruik dit bestand als --input voor pca_reduction.py, stap 2)")
-    print("  - correlation_heatmap.png / feature_dendrogram.png")
+    print("  - pooled_vs_within_subject_comparison.csv -> check op Simpson's-paradox-achtige pooling")
+    print("  - vif_per_feature.csv                   -> multivariate redundantie (3+ features samen)")
+    print("  - correlation_heatmap_pooled.png / _within_subject.png / feature_dendrogram.png /")
+    print("    top_correlated_pairs_scatter.png")
 
 
 if __name__ == "__main__":

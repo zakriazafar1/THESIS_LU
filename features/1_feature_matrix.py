@@ -1,6 +1,6 @@
 """
 =============================================================================
-build_feature_matrix.py
+feature_matrix.py
 
 Bouwt een featurematrix (1 rij per gescoord arousal-event) vanuit:
   1. Lucija's gescoorde arousal-events  (in de sleepArchitecture map)
@@ -30,19 +30,18 @@ De bijbehorende EDF-kanalen worden gezocht in de submap "<stem>_edf" naast
 de sleepArchitecture-map (met fallback naar de nachtmap zelf als die submap
 er toch niet is).
 
-BELANGRIJK — nog te verifiëren aannames:
+BELANGRIJK:
   - De naam van het events-bestand bevat "_events" (zoals eerder gezien:
     bnbd_nsr_01272_T0_N3_events.csv, kolommen: event, start, stop, duration, channel)
   - Het hypnogram-bestand heeft dezelfde naam als de nacht-map zelf, zonder
     "_events" suffix (bv. bnbd_nsr_01272_T0_N2.csv)
-  - Als deze aannames niet kloppen, draai dit script eerst met --inspect
-    zodat je precies ziet welke bestanden er per nacht gevonden worden,
-    voordat je de volledige featureberekening draait.
+  - Draai dit script eerst met --inspect zodat je precies ziet welke bestanden
+    er per nacht gevonden worden, voordat je de volledige featureberekening draait.
 
 Gebruik:
-  python build_feature_matrix.py --inspect --limit 5     # eerst checken
-  python build_feature_matrix.py --limit 5                # test op 5 nachten
-  python build_feature_matrix.py                          # volledige run
+  python feature_matrix.py --inspect --limit 5     # eerst checken
+  python feature_matrix.py --limit 5               # test op 5 nachten
+  python feature_matrix.py                         # volledige run
 =============================================================================
 """
 
@@ -65,9 +64,9 @@ mne.set_log_level("ERROR")
 
 RAW_ROOT   = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
 GROUPS     = ["NSR", "Prezens", "SAV"]
-EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institutpye for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. feature matrices ridge")
+EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices")
 
-TARGET_SFREQ = 128.0            # sampling frequency 
+TARGET_SFREQ = 128.0          
 NOTCH_HZ = 50.0
 HIGHPASS_HZ = 0.1
 LOWPASS_HZ = 35.0
@@ -80,14 +79,17 @@ MOTION_CHANNELS = ["dX", "dY", "dZ"]
 OXY_CHANNEL = "OXY_IR_AC"      # optioneel, wordt geladen indien aanwezig
 
 BANDS = {
-    "theta": (4.0, 7.0),
-    "alpha": (8.0, 12.0),
-    "sigma": (12.0, 16.0),
+    "delta": (0.5, 3.99),
+    "theta": (4.0, 7.99),
+    "alpha": (8.0, 11.99),
+    "sigma": (12.0, 15.99),
     "beta":  (16.0, 30.0),
 }
 
 # Ridge-extractie (Morlet CWT): dominante frequentie over tijd binnen het event
-RIDGE_FREQ_MIN = 4.0    # Hz, ondergrens van het gescande frequentiebereik
+RIDGE_FREQ_MIN = 0.5     # Hz, ondergrens van het gescande frequentiebereik (delta-ondergrens
+                         # 0.5Hz, maar niet lager: bij zulke lage freq's heeft de wavelet (n_cycles=
+                         # max(3, freq/2)) te veel tijdsduur nodig t.o.v. de duur van korte events)
 RIDGE_FREQ_MAX = 30.0   # Hz, bovengrens
 RIDGE_N_FREQS = 40      # aantal frequentiestappen tussen min en max
 RIDGE_N_CYCLES = None   # None = variabele n_cycles (max(3, freq/2)), zelfde default als ScoringHero
