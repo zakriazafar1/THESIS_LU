@@ -74,7 +74,7 @@ FEATURE_MATRIX_DIR = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices"
 )
 INPUT_MATRIX = FEATURE_MATRIX_DIR / "arousal_feature_matrix.csv"
-OUTPUT_DIR = FEATURE_MATRIX_DIR.parent / "2. feature selection\correlation"
+OUTPUT_DIR = FEATURE_MATRIX_DIR.parent / "3. feature selection\correlation"
 
 # Kolommen die NOOIT als clustering-feature meedoen (identifiers / positie)
 ID_COLS = ["subject_id", "group", "night_id", "event_idx", "start_sec", "end_sec"]
