@@ -143,7 +143,7 @@ def parse_ids(night_dir: Path) -> dict:
       subject_id = bnbd_nsr_01272
       night_id   = T0_N2
     """
-    stem = night_dir.name  # bv. "bnbd_nsr_01272_T0_N2"
+    stem = night_dir.name  
 
     m = re.match(r"(bnbd_([a-zA-Z]+)_\d+)_((?:T\d+)_(?:N\d+))", stem)
     if m:
@@ -285,7 +285,7 @@ def _resample_scipy(data: np.ndarray, sfreq: float) -> np.ndarray:
 
 
 def preprocess_eeg(data: np.ndarray, sfreq: float) -> np.ndarray:
-    """DC-removal, notch, high-pass, low-pass, resample -> zelfde stappen als detectiepipeline."""
+    """DC-removal, notch, high-pass, low-pass, resample."""
     data = data - np.median(data)
 
     b_notch, a_notch = iirnotch(NOTCH_HZ, Q=30, fs=sfreq)
@@ -424,9 +424,8 @@ def compute_night_band_envelopes(signals: dict) -> dict:
 def compute_night_baselines(night_envelopes: dict) -> dict:
     """
     Mediaan van elke band-envelope over de HELE nacht -> baseline-referentie
-    per (kanaal, band). Dit vervangt de vroegere lokale 90s-baseline vóór elk
-    event: alle events in dezelfde nacht worden nu vergeleken t.o.v. hetzelfde,
-    stabiele referentiepunt i.p.v. een steeds wisselend lokaal venster.
+    per (kanaal, band). lle events in dezelfde nacht worden vergeleken t.o.v. 
+    hetzelfde stabiele referentiepunt.
     """
     return {key: (np.median(env) if len(env) else np.nan) for key, env in night_envelopes.items()}
 
@@ -513,9 +512,8 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
     Berekent features voor één event, gebaseerd op de EEG-signalen.
 
     Band-ratio's: tijdens-event gemiddelde/piek gedeeld door de MEDIAAN VAN
-    DE HELE NACHT (night_baselines) voor dat kanaal+band, in plaats van een
-    lokale 90s-baseline vóór het event. Alle events in dezelfde nacht worden
-    zo tegen hetzelfde, stabiele referentiepunt afgezet:
+    DE HELE NACHT (night_baselines) voor dat kanaal+band. Alle events in 
+    dezelfde nacht worden zo tegen hetzelfde, stabiele referentiepunt afgezet:
 
         {band}_ratio = tijdens-event gemiddelde amplitude / mediane amplitude over de hele nacht
 
@@ -526,8 +524,7 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
 
     oxy_amp_ratio gebruikt dezelfde whole-night-logica: tijdens-event std
     van het OXY_IR_AC-signaal gedeeld door de std over de HELE nacht
-    (oxy_night_std, één keer per nacht berekend), i.p.v. een lokale
-    90s-baseline.
+    (oxy_night_std, één keer per nacht berekend).
     """
     feats = {}
     sf = TARGET_SFREQ
