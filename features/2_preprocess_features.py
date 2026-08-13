@@ -8,14 +8,13 @@ vóór clustering.
 Stappenplan:
   1. Visualiseer de verdeling van elke feature (histogram + skewness/kurtosis),
      en check op missings/inf.
-  2. Transform skewed features (domein-gebaseerd, niet automatisch op skew):
-       - log1p op alle *_ratio / *_peak_ratio kolommen en op ridge_onset_hz,
-         ridge_peak_hz, ridge_end_hz.
-       - op duration_sec en ridge_drift: zowel log1p (signed, want ridge_drift
-         kan negatief zijn) als sqrt (signed) proberen, en de variant met de
-         laagste |skew| kiezen.
-       - motion_rms en oxy_amp_ratio blijven ongemoeid.
-     Skew wordt na transformatie opnieuw berekend en weggeschreven.
+  2. Transform skewed features: voor ELKE feature wordt automatisch gekozen
+     tussen geen transform / signed-log1p / signed-sqrt, op basis van welke
+     variant de laagste |skew| oplevert (signed = sign(x)*f(|x|), werkt ook
+     voor features met negatieve waarden zoals ridge_drift). Zet features in
+     FORCE_UNTOUCHED_COLS als je ze expliciet nooit wil transformeren.
+     Skew wordt na transformatie opnieuw berekend en weggeschreven, samen met
+     welke variant per feature gekozen is (transform_choices.csv).
   3. Outlier-detectie OP DE GETRANSFORMEERDE SCHAAL, met de klassieke IQR-regel
      (1.5*IQR) -- op de log-schaal is de verdeling redelijk symmetrisch, dus is
      de symmetrische regel weer betrouwbaar. Elke outlier-event wordt
@@ -23,6 +22,8 @@ Stappenplan:
      (duur, sleep stage, welk kanaal/band, hoeveel buiten de grens) -- dit is
      GEEN klinisch oordeel, gewoon de relevante feiten verzameld zodat jij/
      Lucija kan beoordelen of het een plausibel arousal is of een artefact.
+     start_sec, end_sec en stage_rk staan er ook expliciet als kolommen bij,
+     zodat je het event ook rechtstreeks kan terugvinden/opzoeken.
   4. Beslissing toepassen: vul de 'decision'-kolom in outlier_events.csv met
      'winsorize' / 'remove' / 'keep' (leeg = keep) en run het script opnieuw
      met --apply-decisions <pad naar ingevulde outlier_events.csv>.
@@ -78,14 +79,19 @@ METADATA_COLS = [
     "stage_rk",
 ]
 ID_COLS = ["subject_id", "night_id", "event_idx"]  # voor het opzoeken van individuele events
+# Extra metadata-kolommen die ALLEEN in outlier_events.csv worden meegenomen (context bij het
+# beoordelen van een outlier-event), niet gebruikt voor matching zoals ID_COLS.
+OUTLIER_CONTEXT_COLS = ["start_sec", "end_sec", "stage_rk"]
 
 N_COLS_GRID = 5  # aantal subplots per rij in de histogram-grid
 
-# Stap 2: expliciete, domein-gebaseerde transformatiegroepen (i.p.v. automatisch op skew-drempel).
-LOG1P_SUFFIX = "_ratio"                                            # vangt zowel *_ratio als *_peak_ratio
-LOG1P_EXPLICIT_COLS = ["ridge_onset_hz", "ridge_peak_hz", "ridge_end_hz"]
-DUAL_TRANSFORM_COLS = ["duration_sec", "ridge_drift"]               # log1p vs sqrt, beste van de twee kiezen
-UNTOUCHED_COLS = ["motion_rms", "oxy_amp_ratio"]
+# Stap 2: voor ELKE feature wordt automatisch gekozen tussen 3 varianten --
+# geen transform, signed-log1p, signed-sqrt -- op basis van welke de laagste
+# |skew| oplevert (signed = sign(x)*f(|x|), werkt ook voor features met
+# negatieve waarden zoals ridge_drift). Zet hier features in die je expliciet
+# NOOIT wil transformeren (bv. om domein-redenen), ook al zou een transform
+# de skew technisch verlagen.
+FORCE_UNTOUCHED_COLS: list[str] = []
 
 # Stap 3: IQR-methode voor outlier-detectie op de getransformeerde schaal.
 OUTLIER_IQR_MULT = 1.5
@@ -105,7 +111,41 @@ STAGE_LABELS = {0: "wake", 1: "N1", 2: "N2", 3: "N3", 4: "N4", 5: "REM"}
 # =============================================================================
 
 def load_feature_matrix(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(path)
+    """
+    Leest de featurematrix in. Detecteert het scheidingsteken automatisch
+    (sep=None + engine="python") i.p.v. altijd komma aan te nemen, en checkt
+    daarna of numerieke kolommen alsnog als tekst zijn binnengekomen (het
+    Excel-NL-scenario: puntkomma als veld-scheiding EN komma als decimaal-
+    teken, bv. "1,234" i.p.v. "1.234") -- zo ja, dan wordt opnieuw ingelezen
+    met decimal=",". feature_matrix.py zelf schrijft altijd standaard-CSV,
+    maar garandeert niet dat het bestand nooit per ongeluk in Excel met een
+    NL-locale geopend en opgeslagen wordt.
+    """
+    df = pd.read_csv(path, sep=None, engine="python")
+
+    if df.shape[1] == 1:
+        raise ValueError(
+            f"{path} lijkt maar 1 kolom te hebben ({df.columns[0]!r}) -- "
+            "het scheidingsteken kon niet automatisch herkend worden, of het "
+            "bestand is beschadigd. Open het bestand in een teksteditor om te "
+            "checken wat er precies staat."
+        )
+
+    non_numeric_id_cols = {"subject_id", "group", "night_id"}
+    check_cols = [c for c in df.columns if c not in non_numeric_id_cols]
+    n_non_numeric = sum(not pd.api.types.is_numeric_dtype(df[c]) for c in check_cols)
+
+    if n_non_numeric > 0:
+        df_comma_decimal = pd.read_csv(path, sep=None, engine="python", decimal=",")
+        n_non_numeric_comma = sum(
+            not pd.api.types.is_numeric_dtype(df_comma_decimal[c])
+            for c in check_cols if c in df_comma_decimal.columns
+        )
+        if n_non_numeric_comma < n_non_numeric:
+            print(f"[LET OP] {n_non_numeric} kolom(men) kwamen als tekst binnen -- "
+                  f"decimaal-komma gedetecteerd (Excel-NL-formaat), opnieuw ingelezen met decimal=','.")
+            df = df_comma_decimal
+
     print(f"Featurematrix geladen: {path}")
     print(f"Shape: {df.shape}")
     return df
@@ -210,59 +250,50 @@ def signed_sqrt(x: pd.Series) -> pd.Series:
     return np.sign(x) * np.sqrt(np.abs(x))
 
 
-def classify_transform_columns(feature_cols: list[str]) -> tuple[list[str], list[str], list[str], list[str]]:
+def classify_transform_columns(feature_cols: list[str]) -> tuple[list[str], list[str]]:
     """
-    Verdeelt de features in de 3 domein-gebaseerde groepen uit stap 2.
-    Geeft ook een lijst 'unclassified' terug -- kolommen die in geen van de
-    groepen vallen, bv. als de featurematrix in de toekomst uitgebreid wordt.
-    Die worden NIET getransformeerd, maar wel gemeld, zodat het niet stilletjes
-    genegeerd wordt.
+    Verdeelt de features in: auto_cols (gaan door de none/log1p/sqrt-selectie)
+    en forced_untouched_cols (expliciet uitgesloten via FORCE_UNTOUCHED_COLS).
     """
-    log1p_cols = [c for c in feature_cols if c.endswith(LOG1P_SUFFIX) or c in LOG1P_EXPLICIT_COLS]
-    dual_cols = [c for c in feature_cols if c in DUAL_TRANSFORM_COLS]
-    untouched_cols = [c for c in feature_cols if c in UNTOUCHED_COLS]
-
-    classified = set(log1p_cols) | set(dual_cols) | set(untouched_cols)
-    unclassified = [c for c in feature_cols if c not in classified]
-    return log1p_cols, dual_cols, untouched_cols, unclassified
+    forced_untouched = [c for c in feature_cols if c in FORCE_UNTOUCHED_COLS]
+    auto_cols = [c for c in feature_cols if c not in FORCE_UNTOUCHED_COLS]
+    return auto_cols, forced_untouched
 
 
-def apply_log1p_group(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
-    out = df.copy()
-    for c in cols:
-        out[c] = signed_log1p(out[c])
-    return out
-
-
-def apply_dual_transform_group(df: pd.DataFrame, cols: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
+def apply_best_transform_group(df: pd.DataFrame, cols: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Voor elke kolom in cols: probeer zowel signed-log1p als signed-sqrt, en
-    kies de variant met de laagste |skew|. Geeft de getransformeerde df terug
-    plus een keuze-overzicht (welke transform gekozen is en de skew vóór/na).
+    Voor elke kolom in cols: probeer geen transform, signed-log1p en signed-sqrt,
+    en kies de variant met de laagste |skew|. Geeft de getransformeerde df terug
+    plus een keuze-overzicht (skew voor elke variant + welke gekozen is).
     """
     out = df.copy()
     choices = []
     for c in cols:
         raw = df[c].replace([np.inf, -np.inf], np.nan)
-        skew_before = skew(raw.dropna()) if raw.dropna().shape[0] >= 3 else np.nan
+        candidates = {
+            "geen (origineel)": raw,
+            "log1p (signed)": signed_log1p(raw),
+            "sqrt (signed)": signed_sqrt(raw),
+        }
+        skews = {}
+        for name, vals in candidates.items():
+            finite = vals.dropna()
+            skews[name] = skew(finite) if len(finite) >= 3 else np.nan
 
-        log_vals = signed_log1p(raw)
-        sqrt_vals = signed_sqrt(raw)
-        skew_log = skew(log_vals.dropna()) if log_vals.dropna().shape[0] >= 3 else np.nan
-        skew_sqrt = skew(sqrt_vals.dropna()) if sqrt_vals.dropna().shape[0] >= 3 else np.nan
-
-        if pd.isna(skew_log) and pd.isna(skew_sqrt):
-            chosen, out[c] = "geen (te weinig data)", raw
-            skew_after = skew_before
-        elif pd.isna(skew_sqrt) or (not pd.isna(skew_log) and abs(skew_log) <= abs(skew_sqrt)):
-            chosen, out[c], skew_after = "log1p (signed)", log_vals, skew_log
+        valid = {k: v for k, v in skews.items() if pd.notna(v)}
+        if not valid:
+            chosen = "geen (origineel)"
         else:
-            chosen, out[c], skew_after = "sqrt (signed)", sqrt_vals, skew_sqrt
+            chosen = min(valid, key=lambda k: abs(valid[k]))
 
+        out[c] = candidates[chosen]
         choices.append({
-            "feature": c, "skew_before": round(skew_before, 3) if pd.notna(skew_before) else np.nan,
+            "feature": c,
+            "skew_geen": round(skews["geen (origineel)"], 3) if pd.notna(skews["geen (origineel)"]) else np.nan,
+            "skew_log1p": round(skews["log1p (signed)"], 3) if pd.notna(skews["log1p (signed)"]) else np.nan,
+            "skew_sqrt": round(skews["sqrt (signed)"], 3) if pd.notna(skews["sqrt (signed)"]) else np.nan,
             "chosen_transform": chosen,
-            "skew_after": round(skew_after, 3) if pd.notna(skew_after) else np.nan,
+            "skew_after": round(skews[chosen], 3) if pd.notna(skews[chosen]) else np.nan,
         })
     return out, pd.DataFrame(choices)
 
@@ -340,13 +371,15 @@ def flag_outlier_events(df_raw: pd.DataFrame, df_transformed: pd.DataFrame,
                          outlier_summary: pd.DataFrame) -> pd.DataFrame:
     """
     Voor elke feature met outliers: alle events die buiten de IQR-grenzen
-    vallen (op de getransformeerde schaal), met identifiers, ruwe + getrans-
-    formeerde waarde, een automatisch gegenereerde descriptive_note, en een
-    LEGE 'decision'-kolom (in te vullen met winsorize/remove/keep vóór je
-    --apply-decisions draait). '_row_index' is de originele rij-index in de
-    featurematrix, nodig om de decision straks weer terug te koppelen.
+    vallen (op de getransformeerde schaal), met identifiers, extra context
+    (start_sec, end_sec, stage_rk), ruwe + getransformeerde waarde, een
+    automatisch gegenereerde descriptive_note, en een LEGE 'decision'-kolom
+    (in te vullen met winsorize/remove/keep vóór je --apply-decisions draait).
+    '_row_index' is de originele rij-index in de featurematrix, nodig om de
+    decision straks weer terug te koppelen.
     """
     id_cols = [c for c in ID_COLS if c in df_raw.columns]
+    context_cols = [c for c in OUTLIER_CONTEXT_COLS if c in df_raw.columns]
     rows = []
     for _, r in outlier_summary.dropna(subset=["n_outliers"]).iterrows():
         if r["n_outliers"] == 0:
@@ -366,6 +399,8 @@ def flag_outlier_events(df_raw: pd.DataFrame, df_transformed: pd.DataFrame,
             row = {"_row_index": i, "feature": feat}
             for c in id_cols:
                 row[c] = df_raw.loc[i, c]
+            for c in context_cols:
+                row[c] = df_raw.loc[i, c]
             row.update({
                 "raw_value": df_raw.loc[i, feat],
                 "transformed_value": df_transformed.loc[i, feat],
@@ -376,7 +411,7 @@ def flag_outlier_events(df_raw: pd.DataFrame, df_transformed: pd.DataFrame,
             rows.append(row)
 
     if not rows:
-        return pd.DataFrame(columns=["_row_index", "feature"] + id_cols +
+        return pd.DataFrame(columns=["_row_index", "feature"] + id_cols + context_cols +
                              ["raw_value", "transformed_value", "bound", "descriptive_note", "decision"])
     return pd.DataFrame(rows)
 
@@ -468,28 +503,32 @@ def run_steps_1_to_3(df: pd.DataFrame, feature_cols: list[str], verbose: bool) -
     print("  - missing_inf_summary.csv\n  - distribution_stats.csv\n  - feature_distributions.png")
 
     # --- Stap 2 ---
-    log1p_cols, dual_cols, untouched_cols, unclassified = classify_transform_columns(feature_cols)
-    if unclassified:
-        print(f"\n[WAARSCHUWING] niet-geclassificeerde features (blijven ongemoeid): {unclassified}")
+    auto_cols, forced_untouched_cols = classify_transform_columns(feature_cols)
 
-    df_t = apply_log1p_group(df, log1p_cols)
-    df_t, dual_choices = apply_dual_transform_group(df_t, dual_cols)
-    # untouched_cols: al ongemoeid in df_t, want apply_log1p_group/apply_dual_transform_group
-    # raken alleen hun eigen cols aan.
+    df_t = df.copy()
+    df_t_auto, transform_choices = apply_best_transform_group(df, auto_cols)
+    for c in auto_cols:
+        df_t[c] = df_t_auto[c]
+    # forced_untouched_cols: blijven ongemoeid, df_t heeft daar nog de originele waarden.
 
     dist_stats_after = compute_distribution_stats(df_t, feature_cols)
     df_t.to_csv(OUTPUT_DIR / "arousal_feature_matrix_transformed.csv", index=False)
     dist_stats_after.to_csv(OUTPUT_DIR / "distribution_stats_transformed.csv", index=False)
-    if len(dual_choices):
-        dual_choices.to_csv(OUTPUT_DIR / "dual_transform_choices.csv", index=False)
+    if len(transform_choices):
+        transform_choices.to_csv(OUTPUT_DIR / "transform_choices.csv", index=False)
     plot_distributions(df_t, feature_cols, OUTPUT_DIR / "feature_distributions_transformed.png")
 
-    print(f"\nStap 2: log1p op {len(log1p_cols)} ratio/ridge-freq features; "
-          f"log1p-vs-sqrt gekozen voor {dual_cols}; {untouched_cols} ongemoeid.")
-    if len(dual_choices):
-        print(dual_choices.to_string(index=False))
+    n_log = (transform_choices["chosen_transform"] == "log1p (signed)").sum() if len(transform_choices) else 0
+    n_sqrt = (transform_choices["chosen_transform"] == "sqrt (signed)").sum() if len(transform_choices) else 0
+    n_none = (transform_choices["chosen_transform"] == "geen (origineel)").sum() if len(transform_choices) else 0
+    print(f"\nStap 2: per feature automatisch gekozen tussen geen/log1p/sqrt o.b.v. laagste |skew|: "
+          f"{n_log} log1p, {n_sqrt} sqrt, {n_none} geen transform.")
+    if forced_untouched_cols:
+        print(f"  Expliciet ongemoeid (FORCE_UNTOUCHED_COLS): {forced_untouched_cols}")
+    if len(transform_choices):
+        print(transform_choices.to_string(index=False))
     print("  - arousal_feature_matrix_transformed.csv\n  - distribution_stats_transformed.csv"
-          "\n  - dual_transform_choices.csv\n  - feature_distributions_transformed.png")
+          "\n  - transform_choices.csv\n  - feature_distributions_transformed.png")
 
     # --- Stap 3 ---
     outlier_summary = compute_outlier_summary(df_t, feature_cols)

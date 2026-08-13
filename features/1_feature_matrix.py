@@ -37,6 +37,9 @@ BELANGRIJK:
     "_events" suffix (bv. bnbd_nsr_01272_T0_N2.csv)
   - Draai dit script eerst met --inspect zodat je precies ziet welke bestanden
     er per nacht gevonden worden, voordat je de volledige featureberekening draait.
+  - event_idx loopt DOORLOPEND over de hele run (+1 per event), niet per nacht
+    opnieuw bij 0 -- zo is elk event uniek te identificeren via event_idx alleen,
+    ook over nachten heen.
 
 Gebruik:
   python feature_matrix.py --inspect --limit 5     # eerst checken
@@ -105,7 +108,7 @@ FEATURE_COLUMN_ORDER = (
        for label in CHANNEL_LABELS.values()
        for metric in ("ratio", "peak_ratio")]
     + [f"mean_{band}_ratio" for band in BANDS]
-    + ["ridge_onset_hz", "ridge_peak_hz", "ridge_end_hz", "ridge_drift"]
+    + ["ridge_onset_hz", "ridge_peak_hz", "ridge_end_hz"]
     + ["motion_rms", "oxy_amp_ratio"]
 )
 
@@ -143,7 +146,7 @@ def parse_ids(night_dir: Path) -> dict:
       subject_id = bnbd_nsr_01272
       night_id   = T0_N2
     """
-    stem = night_dir.name  
+    stem = night_dir.name
 
     m = re.match(r"(bnbd_([a-zA-Z]+)_\d+)_((?:T\d+)_(?:N\d+))", stem)
     if m:
@@ -424,7 +427,7 @@ def compute_night_band_envelopes(signals: dict) -> dict:
 def compute_night_baselines(night_envelopes: dict) -> dict:
     """
     Mediaan van elke band-envelope over de HELE nacht -> baseline-referentie
-    per (kanaal, band). lle events in dezelfde nacht worden vergeleken t.o.v. 
+    per (kanaal, band). Alle events in dezelfde nacht worden vergeleken t.o.v.
     hetzelfde stabiele referentiepunt.
     """
     return {key: (np.median(env) if len(env) else np.nan) for key, env in night_envelopes.items()}
@@ -435,9 +438,7 @@ def compute_ridge_features(sig: np.ndarray, sf: float, start_i: int, end_i: int)
     Morlet-tijd-frequentie-analyse + ridge-extractie (via compute_morlet_tf,
     dezelfde methode als ScoringHero): volgt de dominante frequentie op elk
     moment binnen het event, i.p.v. energie in vooraf-vaste banden (zoals de
-    band_envelope-features). Geeft frequentie bij onset/piek/einde, de
-    drift (Hz/sec) over het event, en de spreiding van de ridge (een ruwe
-    maat voor hoe smalbandig/breedbandig het event is).
+    band_envelope-features). Geeft frequentie bij onset/piek/einde.
 
     compute_morlet_tf werkt via een FFT over het hele meegegeven signaal,
     wat op een kort event-segment tot wrap-around-randeffecten kan leiden
@@ -450,7 +451,6 @@ def compute_ridge_features(sig: np.ndarray, sf: float, start_i: int, end_i: int)
         "ridge_onset_hz": np.nan,
         "ridge_peak_hz": np.nan,
         "ridge_end_hz": np.nan,
-        "ridge_drift": np.nan,
     }
 
     if end_i <= start_i or end_i > len(sig):
@@ -478,12 +478,8 @@ def compute_ridge_features(sig: np.ndarray, sf: float, start_i: int, end_i: int)
     ridge_idx = np.argmax(power, axis=0)
     ridge_freq = freqs[ridge_idx]
 
-    n_t = len(ridge_freq)
-    duration = n_t / sf
-
     onset_freq = ridge_freq[0]
     end_freq = ridge_freq[-1]
-    drift = (end_freq - onset_freq) / duration if duration > 0 else np.nan
 
     peak_time_idx = np.unravel_index(np.argmax(power), power.shape)[1]
     peak_freq = ridge_freq[peak_time_idx]
@@ -492,7 +488,6 @@ def compute_ridge_features(sig: np.ndarray, sf: float, start_i: int, end_i: int)
         "ridge_onset_hz": onset_freq,
         "ridge_peak_hz": peak_freq,
         "ridge_end_hz": end_freq,
-        "ridge_drift": drift,
     }
 
 
@@ -512,7 +507,7 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
     Berekent features voor één event, gebaseerd op de EEG-signalen.
 
     Band-ratio's: tijdens-event gemiddelde/piek gedeeld door de MEDIAAN VAN
-    DE HELE NACHT (night_baselines) voor dat kanaal+band. Alle events in 
+    DE HELE NACHT (night_baselines) voor dat kanaal+band. Alle events in
     dezelfde nacht worden zo tegen hetzelfde, stabiele referentiepunt afgezet:
 
         {band}_ratio = tijdens-event gemiddelde amplitude / mediane amplitude over de hele nacht
@@ -571,7 +566,6 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
             "ridge_onset_hz": np.nan,
             "ridge_peak_hz": np.nan,
             "ridge_end_hz": np.nan,
-            "ridge_drift": np.nan,
         })
 
     # Motion features (accelerometer), als proxy voor beweging tijdens het event
@@ -603,7 +597,14 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
 # SECTIE 5 — HOOFDLOOP
 # =============================================================================
 
-def process_night(night_dir: Path, ids: dict, inspect: bool = False) -> pd.DataFrame | None:
+def process_night(night_dir: Path, ids: dict, inspect: bool = False,
+                   start_idx: int = 0) -> pd.DataFrame | None:
+    """
+    start_idx: de event_idx-waarde waarmee deze nacht begint (loopt door over
+    de hele run, i.p.v. elke nacht opnieuw bij 0 te beginnen). De caller
+    (main()) houdt de lopende teller bij en hoogt hem op met len(df) na elke
+    verwerkte nacht.
+    """
     arch_dir = night_dir / "sleepArchitecture"
     events_path = find_events_file(arch_dir, ids["stem"])
     hyp_path = find_hypnogram_file(arch_dir, ids["stem"])
@@ -650,7 +651,7 @@ def process_night(night_dir: Path, ids: dict, inspect: bool = False) -> pd.DataF
             "subject_id": ids["subject_id"],
             "group": ids["group"],
             "night_id": ids["night_id"],
-            "event_idx": i,
+            "event_idx": start_idx + i,   # doorlopend over de hele run, niet per nacht bij 0
             "start_sec": ev["start_sec"],
             "end_sec": ev["end_sec"],
             "duration_sec": ev["duration_sec"],
@@ -677,23 +678,19 @@ def main():
         night_dirs = night_dirs[: args.limit]
 
     all_rows = []
+    running_event_idx = 0  # doorlopende teller over alle nachten heen (voorlopig, zie hieronder)
     for night_dir in night_dirs:
         ids = parse_ids(night_dir)
         try:
-            df = process_night(night_dir, ids, inspect=args.inspect)
+            df = process_night(night_dir, ids, inspect=args.inspect, start_idx=running_event_idx)
         except Exception as e:
             print(f"  [ERROR] {ids['stem']}: {e}")
             continue
         if df is not None:
+            df["_stem"] = ids["stem"]  # tijdelijke kolom, alleen om straks per nacht te kunnen groeperen
             all_rows.append(df)
+            running_event_idx += len(df)
             print(f"  [OK] {ids['stem']}: {len(df)} events verwerkt")
-
-            # Per-nacht featurematrix apart opslaan (standaard CSV: komma-scheiding, punt-decimaal —
-            # NIET meer Excel-NL-formaat, want dat corrumpeert bij openen/opslaan met een niet-NL
-            # Excel-locale-instelling: decimale komma's worden dan als duizendtal-scheiding gelezen)
-            EVENTS_DIR.mkdir(parents=True, exist_ok=True)
-            night_out_path = EVENTS_DIR / f"{ids['stem']}_fm.csv"
-            df.to_csv(night_out_path, index=False, float_format="%.3f")
 
     if args.inspect:
         print("\nInspectie klaar. Pas find_events_file / load_events / load_hypnogram")
@@ -706,7 +703,25 @@ def main():
 
     feature_matrix = pd.concat(all_rows, ignore_index=True)
 
+    # event_idx opnieuw nummeren over de VOLLEDIGE, geconcateneerde dataset --
+    # dit is de enige plek die garandeert dat elk event (over alle participanten
+    # en nachten heen) een uniek, strikt doorlopend event_idx krijgt, ongeacht
+    # de per-nacht boekhouding hierboven.
+    feature_matrix["event_idx"] = range(len(feature_matrix))
+
     EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Per-nacht featurematrices PAS NU wegschrijven (na de globale herindexering hierboven),
+    # zodat elk per-nacht bestand exact dezelfde event_idx-waarden bevat als het gecombineerde
+    # arousal_feature_matrix.csv -- anders zouden de losse bestanden nog de voorlopige,
+    # per-nacht-lokale event_idx uit process_night() hebben. Standaard CSV: komma-scheiding,
+    # punt-decimaal — NIET Excel-NL-formaat, want dat corrumpeert bij openen/opslaan met een
+    # niet-NL Excel-locale-instelling: decimale komma's worden dan als duizendtal-scheiding gelezen.
+    for stem, group_df in feature_matrix.groupby("_stem", sort=False):
+        night_out_path = EVENTS_DIR / f"{stem}_fm.csv"
+        group_df.drop(columns="_stem").to_csv(night_out_path, index=False, float_format="%.3f")
+
+    feature_matrix = feature_matrix.drop(columns="_stem")
     out_path = EVENTS_DIR / "arousal_feature_matrix.csv"
     feature_matrix.to_csv(out_path, index=False, float_format="%.3f")
     print(f"\nFeaturematrix opgeslagen: {out_path}")
