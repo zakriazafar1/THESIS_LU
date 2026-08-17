@@ -568,15 +568,21 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
             "ridge_end_hz": np.nan,
         })
 
-    # Motion features (accelerometer), als proxy voor beweging tijdens het event
-    motion_rms = []
-    for ch in MOTION_CHANNELS:
-        if ch in signals:
-            sig = signals[ch]
-            if end_i <= len(sig) and start_i < end_i:
-                seg = sig[start_i:end_i]
-                motion_rms.append(np.sqrt(np.mean(seg ** 2)))
-    feats["motion_rms"] = np.mean(motion_rms) if motion_rms else np.nan
+    # Motion features (accelerometer), als proxy voor beweging tijdens het event.
+    # We combineren dX/dY/dZ eerst tot één vectormagnitude per sample
+    # (sqrt(dX^2+dY^2+dZ^2)) en nemen PAS DAARNA de RMS over de tijd, i.p.v.
+    # per as apart RMS te nemen en die drie getallen te middelen. Dat maakt
+    # motion_rms rotatie-invariant: dezelfde fysieke beweging geeft hetzelfde
+    # getal ongeacht hoe de hoofdband op dat moment gedraaid lag (bv. op de rug
+    # vs. op de zij), terwijl het rekenkundig gemiddelde van losse per-as-RMS's
+    # daar wel gevoelig voor is.
+    available_motion = [ch for ch in MOTION_CHANNELS if ch in signals]
+    if available_motion and all(end_i <= len(signals[ch]) and start_i < end_i
+                                 for ch in available_motion):
+        magnitude = np.sqrt(sum(signals[ch][start_i:end_i] ** 2 for ch in available_motion))
+        feats["motion_rms"] = np.sqrt(np.mean(magnitude ** 2))
+    else:
+        feats["motion_rms"] = np.nan
 
     # Pulse-oximetrie amplitude-ratio (cardiovasculaire arousal proxy): tijdens-event std
     # gedeeld door de std over de HELE nacht, indien het OXY-kanaal beschikbaar is.
