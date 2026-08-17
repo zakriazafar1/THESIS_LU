@@ -262,12 +262,17 @@ def get_edf_dir(night_dir: Path, stem: str) -> Path:
 
 
 def load_channel(edf_dir: Path, name: str) -> tuple[np.ndarray, float] | None:
-    """Laadt één EDF-kanaalbestand, geeft (data_in_uV, sfreq) terug of None."""
+    """Laadt één EDF-kanaalbestand. EEG-kanalen worden omgerekend naar µV,
+    andere kanalen (motion, OXY) blijven in hun eigen fysieke eenheid (bv. g)."""
     edf_path = edf_dir / f"{name}.edf"
     if not edf_path.exists():
         return None
     raw = mne.io.read_raw_edf(edf_path, preload=True, verbose=False)
-    data = raw.get_data()[0] * 1e6  # V -> µV
+    data = raw.get_data()[0]
+
+    if name in EEG_CHANNELS:      # of: if name in ("EEG L psg-lp", "EEG R psg-lp")
+        data = data * 1e6            # V -> µV, alleen voor EEG
+
     return data, raw.info["sfreq"]
 
 
