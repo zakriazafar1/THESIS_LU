@@ -1,6 +1,6 @@
 """
 =============================================================================
-check_edf_channel_scale.py  (dependency-free versie)
+.check_edf.py  (dependency-free versie)
 
 Zelfde doel als eerder: print per kanaal in een EDF-bestand de eenheid
 (physical_dimension) en het bereik (physical_min/max, digital_min/max),
@@ -12,9 +12,9 @@ is aan het begin van het bestand; die lezen we hier rechtstreeks uit, dus
 geen gedoe meer met het compileren van pyedflib.
 
 Gebruik:
-  python check_edf_channel_scale.py --edf "<pad naar .edf>"
-  python check_edf_channel_scale.py --edf "<pad naar .edf>" --channels dX dY dZ
-  python check_edf_channel_scale.py --edf "<pad naar .edf>" --channels dX dY dZ --preview 5
+  python .check_edf.py --edf "<pad naar .edf>"
+  python .check_edf.py --edf "<pad naar .edf>" --channels dX dY dZ
+  python .check_edf.py --edf "<pad naar .edf>" --channels dX dY dZ --preview 5
 =============================================================================
 """
 

@@ -1,6 +1,6 @@
 """
 =============================================================================
-preprocess_features.py
+2_transform_features.py
 
 Preprocessing van de arousal-featurematrix (output van feature_matrix.py),
 vóór clustering.
@@ -38,14 +38,14 @@ Stappenplan:
      de resterende extremen.
 
 Gebruik:
-  python preprocess_features.py
+  python 2_transform_features.py
       -> stap 1, 2, 3. Schrijft o.a. outlier_events.csv weg met een lege
          'decision'-kolom.
-  python preprocess_features.py --apply-decisions pad/naar/ingevulde_outlier_events.csv
+  python 2_transform_features.py --apply-decisions pad/naar/ingevulde_outlier_events.csv
       -> stap 4 (winsorize/remove op basis van de ingevulde decisions) + stap 5
          (standaardiseren). Schrijft de uiteindelijke, klaar-voor-clustering
          featurematrix weg.
-  python preprocess_features.py --inspect-distributions   # print tabellen ook naar console
+  python 2_transform_features.py --inspect-distributions   # print tabellen ook naar console
 =============================================================================
 """
 
@@ -540,7 +540,7 @@ def run_steps_1_to_3(df: pd.DataFrame, feature_cols: list[str], verbose: bool) -
           f"(IQR op getransformeerde schaal).")
     print("  - outlier_summary.csv\n  - outlier_events.csv  <- vul hier de 'decision'-kolom in")
     print("\nVul de 'decision'-kolom in outlier_events.csv in (winsorize/remove/keep) en run:")
-    print("  python preprocess_features.py --apply-decisions <pad naar ingevulde outlier_events.csv>")
+    print("  python 2_transform_features.py --apply-decisions <pad naar ingevulde outlier_events.csv>")
 
     if verbose:
         print("\n--- Missing / inf overzicht ---")
