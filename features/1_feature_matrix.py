@@ -346,7 +346,7 @@ def load_night_signals(night_dir: Path, stem: str) -> dict:
 # SECTIE 4 — FEATURES PER EVENT BEREKENEN
 # =============================================================================
 
-def compute_morlet_tf(signal, srate, freqs, n_cycles=None, L2normalize=False):
+def compute_morlet_tf(signal, srate, freqs, n_cycles=None, L2normalize=True):
     """Compute time-frequency power via Morlet wavelet convolution (FFT-based).
     For each frequency the signal is convolved with a complex Morlet wavelet
     whose bandwidth is set by n_cycles. The FFT of the signal is computed

@@ -1,9 +1,9 @@
 """
 =============================================================================
-3_scale_features.py
+2.2_scale_features.py
 
 Standaardisatie (RobustScaler) van de getransformeerde arousal-featurematrix
-(output van 2_transform_features.py. 
+(output van 2_transform_features.py), als laatste stap vóór clustering.
 
 Waarom RobustScaler i.p.v. StandardScaler:
   RobustScaler schaalt op basis van mediaan en IQR (25e-75e percentiel) i.p.v.
@@ -21,13 +21,13 @@ Stappenplan:
      scaling). Per feature wordt de gebruikte mediaan en IQR weggeschreven
      (scaler_summary.csv), zodat de scaling reproduceerbaar/na te rekenen is.
   4. Distributie NA scaling visualiseren + skew/kurtosis wegschrijven.
-  5. Geschaalde featurematrix wegschrijven.
+  5. Geschaalde featurematrix wegschrijven -- klaar voor clustering.
 
 Gebruik:
-  python 3_scale_features.py
-      -> leest arousal_feature_matrix_transformed.csv uit OUTPUT_DIR (zie
-         onder), schrijft alles terug naar dezelfde map.
-  python 3_scale_features.py --input pad/naar/andere_transformed.csv
+  python 2.2_scale_features.py
+      -> leest arousal_feature_matrix_transformed.csv uit INPUT_DIR, schrijft
+         alle output naar OUTPUT_DIR (zie configuratie hieronder).
+  python 2.2_scale_features.py --input pad/naar/andere_transformed.csv
 =============================================================================
 """
 
@@ -44,12 +44,17 @@ from sklearn.preprocessing import RobustScaler
 # CONFIGURATIE
 # =============================================================================
 
-# Zelfde map als waar 2_transform_features.py zijn output neerzet.
-OUTPUT_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing"
+# Map waar 2_transform_features.py de getransformeerde featurematrix neerzet.
+INPUT_DIR = Path(
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\transformed"
 )
 
-DEFAULT_INPUT = OUTPUT_DIR / "arousal_feature_matrix_transformed.csv"
+# Map waar de output van dit script (scaled matrix, plots, summaries) naartoe gaat.
+OUTPUT_DIR = Path(
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled"
+)
+
+DEFAULT_INPUT = INPUT_DIR / "arousal_feature_matrix_transformed.csv"
 
 # Zelfde metadata-kolommen als in 2_transform_features.py -- deze worden
 # uitgesloten van scaling, en gewoon meegekopieerd naar de output.
@@ -67,13 +72,44 @@ N_COLS_GRID = 5  # aantal subplots per rij in de histogram-grid
 # =============================================================================
 
 def load_transformed_matrix(path: Path) -> pd.DataFrame:
-    """Leest de getransformeerde featurematrix in (standaard-CSV, door 2_transform_features.py weggeschreven)."""
+    """
+    Leest de getransformeerde featurematrix in. Detecteert het scheidingsteken
+    automatisch (sep=None + engine="python") i.p.v. altijd komma aan te nemen
+    -- 2_transform_features.py schrijft zelf standaard-CSV (komma), maar als
+    het bestand tussendoor per ongeluk in Excel met een NL-locale geopend en
+    opgeslagen is, kan het scheidingsteken puntkomma zijn geworden (en de
+    decimaalpunt een komma). Zelfde detectielogica als in 2_transform_features.py.
+    """
     if not path.exists():
         raise FileNotFoundError(
             f"{path} bestaat niet -- run eerst 2_transform_features.py, of geef het juiste "
             "pad mee met --input."
         )
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, sep=None, engine="python")
+
+    if df.shape[1] == 1:
+        raise ValueError(
+            f"{path} lijkt maar 1 kolom te hebben ({df.columns[0]!r}) -- "
+            "het scheidingsteken kon niet automatisch herkend worden, of het "
+            "bestand is beschadigd. Open het bestand in een teksteditor om te "
+            "checken wat er precies staat."
+        )
+
+    non_numeric_id_cols = {"subject_id", "group", "night_id"}
+    check_cols = [c for c in df.columns if c not in non_numeric_id_cols]
+    n_non_numeric = sum(not pd.api.types.is_numeric_dtype(df[c]) for c in check_cols)
+
+    if n_non_numeric > 0:
+        df_comma_decimal = pd.read_csv(path, sep=None, engine="python", decimal=",")
+        n_non_numeric_comma = sum(
+            not pd.api.types.is_numeric_dtype(df_comma_decimal[c])
+            for c in check_cols if c in df_comma_decimal.columns
+        )
+        if n_non_numeric_comma < n_non_numeric:
+            print(f"[LET OP] {n_non_numeric} kolom(men) kwamen als tekst binnen -- "
+                  f"decimaal-komma gedetecteerd (Excel-NL-formaat), opnieuw ingelezen met decimal=','.")
+            df = df_comma_decimal
+
     print(f"Getransformeerde featurematrix geladen: {path}")
     print(f"Shape: {df.shape}")
     return df
