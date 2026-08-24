@@ -66,7 +66,7 @@ DEFAULT_INPUT = Path(
 )
 
 OUTPUT_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\transformed"
 )
 
 # Kolommen die GEEN feature zijn (identifiers / metadata), dus uitgesloten van
