@@ -1,6 +1,6 @@
 """
 =============================================================================
-feature_matrix.py
+1_feature_matrix.py
 
 Bouwt een featurematrix (1 rij per gescoord arousal-event) vanuit:
   1. Lucija's gescoorde arousal-events  (in de sleepArchitecture map)
@@ -42,9 +42,9 @@ BELANGRIJK:
     ook over nachten heen.
 
 Gebruik:
-  python feature_matrix.py --inspect --limit 5     # eerst checken
-  python feature_matrix.py --limit 5               # test op 5 nachten
-  python feature_matrix.py                         # volledige run
+  python 1_feature_matrix.py --inspect --limit 5     # eerst checken
+  python 1_feature_matrix.py --limit 5               # test op 5 nachten
+  python 1_feature_matrix.py                         # volledige run
 =============================================================================
 """
 
@@ -89,15 +89,6 @@ BANDS = {
     "beta":  (16.0, 30.0),
 }
 
-# Ridge-extractie (Morlet CWT): dominante frequentie over tijd binnen het event
-RIDGE_FREQ_MIN = 0.5     # Hz, ondergrens van het gescande frequentiebereik (delta-ondergrens
-                         # 0.5Hz, maar niet lager: bij zulke lage freq's heeft de wavelet (n_cycles=
-                         # max(3, freq/2)) te veel tijdsduur nodig t.o.v. de duur van korte events)
-RIDGE_FREQ_MAX = 30.0   # Hz, bovengrens
-RIDGE_N_FREQS = 40      # aantal frequentiestappen tussen min en max
-RIDGE_N_CYCLES = None   # None = variabele n_cycles (max(3, freq/2)), zelfde default als ScoringHero
-RIDGE_PAD_SEC = 2.0     # padding aan weerszijden van het event, om FFT-wrap-around-randeffecten te beperken
-
 # Vaste kolomvolgorde van de featurematrix (per band: L_ratio, L_peak_ratio, R_ratio, R_peak_ratio,
 # dan de volgende band; daarna de mean_*_ratio's van alle banden naast elkaar).
 FEATURE_COLUMN_ORDER = (
@@ -108,7 +99,6 @@ FEATURE_COLUMN_ORDER = (
        for label in CHANNEL_LABELS.values()
        for metric in ("ratio", "peak_ratio")]
     + [f"mean_{band}_ratio" for band in BANDS]
-    + ["ridge_onset_hz", "ridge_peak_hz", "ridge_end_hz"]
     + ["motion_rms", "oxy_amp_ratio"]
 )
 
@@ -346,70 +336,6 @@ def load_night_signals(night_dir: Path, stem: str) -> dict:
 # SECTIE 4 — FEATURES PER EVENT BEREKENEN
 # =============================================================================
 
-def compute_morlet_tf(signal, srate, freqs, n_cycles=None, L2normalize=True):
-    """Compute time-frequency power via Morlet wavelet convolution (FFT-based).
-    For each frequency the signal is convolved with a complex Morlet wavelet
-    whose bandwidth is set by n_cycles. The FFT of the signal is computed
-    once and then multiplied by each wavelet's frequency-domain Gaussian,
-    making this O(F * N log N) in total.
-
-    (Overgenomen ongewijzigd van de supervisor's ScoringHero-implementatie,
-    zodat de ridge-features hier dezelfde tijd-frequentie-methode gebruiken
-    als de tool waarmee Lucija scoort.)
-
-    Parameters
-    ----------
-    signal : 1-D ndarray, shape (n_samples,)
-        EEG signal for one epoch (may include extension on either side).
-    srate : float
-        Sampling rate in Hz.
-    freqs : 1-D ndarray
-        Centre frequencies in Hz.
-    n_cycles : float, array-like, or None
-        Number of wavelet cycles per frequency.  When None (default) a
-        variable scheme is used: n_cycles = max(3, freq / 2).  This gives
-        better temporal resolution at low frequencies (individual slow
-        waves are sharply localised) while preserving good frequency
-        resolution at higher frequencies (spindles, beta, gamma).
-        Pass a scalar to use the same value for every frequency.
-    normalize : bool
-        If True, L2-normalize each wavelet so it has unit energy. This
-        makes power values comparable across frequencies. If False, the
-        raw (unnormalized) power is returned.
-
-    Returns
-    -------
-    power : 2-D ndarray, shape (n_freqs, n_samples)
-        Instantaneous power (squared magnitude of the analytic signal).
-    """
-    freqs = np.asarray(freqs)
-    if n_cycles is None:
-        n_cycles_arr = np.maximum(3.0, freqs / 2.0)
-    elif np.isscalar(n_cycles):
-        n_cycles_arr = np.full(len(freqs), float(n_cycles))
-    else:
-        n_cycles_arr = np.asarray(n_cycles, dtype=float)
-    n_samples = len(signal)
-    signal = signal - np.mean(signal)  # remove DC offset to avoid leakage into low-frequency wavelets
-    signal_fft = np.fft.fft(signal)
-    fft_freqs = np.fft.fftfreq(n_samples, d=1.0 / srate)
-    power = np.empty((len(freqs), n_samples), dtype=np.float64)
-    for i, freq in enumerate(freqs):
-        sigma_f = freq / n_cycles_arr[i]
-        wavelet_fft = np.exp(-0.5 * ((fft_freqs - freq) / sigma_f) ** 2)
-        if L2normalize:
-            wavelet_fft /= np.sqrt(np.sum(wavelet_fft ** 2))
-        analytic = np.fft.ifft(signal_fft * wavelet_fft)
-        power[i] = np.abs(analytic) ** 2
-    return power
-
-
-# Minimale segmentlengte (samples) om band_envelope veilig te kunnen draaien.
-# filtfilt vereist een signaal langer dan zijn interne padding-lengte;
-# voor onze 4e-orde bandpass-filters is dat orde ~27 samples, dus 64 is een veilige marge.
-MIN_FILTER_SAMPLES = 64
-
-
 def compute_night_band_envelopes(signals: dict) -> dict:
     """
     Berekent voor elk EEG-kanaal en elke band de band-envelope over de HELE nacht,
@@ -436,64 +362,6 @@ def compute_night_baselines(night_envelopes: dict) -> dict:
     hetzelfde stabiele referentiepunt.
     """
     return {key: (np.median(env) if len(env) else np.nan) for key, env in night_envelopes.items()}
-
-
-def compute_ridge_features(sig: np.ndarray, sf: float, start_i: int, end_i: int) -> dict:
-    """
-    Morlet-tijd-frequentie-analyse + ridge-extractie (via compute_morlet_tf,
-    dezelfde methode als ScoringHero): volgt de dominante frequentie op elk
-    moment binnen het event, i.p.v. energie in vooraf-vaste banden (zoals de
-    band_envelope-features). Geeft frequentie bij onset/piek/einde.
-
-    compute_morlet_tf werkt via een FFT over het hele meegegeven signaal,
-    wat op een kort event-segment tot wrap-around-randeffecten kan leiden
-    (het einde "lekt" een beetje naar het begin en andersom). Om dat te
-    beperken wordt het event met RIDGE_PAD_SEC seconden padding aan beide
-    kanten meegenomen in de berekening, en pas daarna teruggesneden naar
-    het eigenlijke event-window.
-    """
-    empty = {
-        "ridge_onset_hz": np.nan,
-        "ridge_peak_hz": np.nan,
-        "ridge_end_hz": np.nan,
-    }
-
-    if end_i <= start_i or end_i > len(sig):
-        return empty
-
-    pad_samples = int(RIDGE_PAD_SEC * sf)
-    seg_start = max(0, start_i - pad_samples)
-    seg_end = min(len(sig), end_i + pad_samples)
-    padded_segment = sig[seg_start:seg_end]
-
-    if len(padded_segment) < MIN_FILTER_SAMPLES:
-        return empty
-
-    freqs = np.linspace(RIDGE_FREQ_MIN, RIDGE_FREQ_MAX, RIDGE_N_FREQS)
-    power_padded = compute_morlet_tf(padded_segment, sf, freqs, n_cycles=RIDGE_N_CYCLES)
-
-    # Terugsnijden naar het eigenlijke event-window (padding eraf)
-    crop_start = start_i - seg_start
-    crop_end = crop_start + (end_i - start_i)
-    power = power_padded[:, crop_start:crop_end]
-
-    if power.shape[1] == 0:
-        return empty
-
-    ridge_idx = np.argmax(power, axis=0)
-    ridge_freq = freqs[ridge_idx]
-
-    onset_freq = ridge_freq[0]
-    end_freq = ridge_freq[-1]
-
-    peak_time_idx = np.unravel_index(np.argmax(power), power.shape)[1]
-    peak_freq = ridge_freq[peak_time_idx]
-
-    return {
-        "ridge_onset_hz": onset_freq,
-        "ridge_peak_hz": peak_freq,
-        "ridge_end_hz": end_freq,
-    }
 
 
 def safe_ratio(numerator: float, denominator: float) -> float:
@@ -560,18 +428,6 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
                   if f"{CHANNEL_LABELS[ch]}_{band_name}_ratio" in feats]
         ratios = [r for r in ratios if r is not None and not (isinstance(r, float) and np.isnan(r))]
         feats[f"mean_{band_name}_ratio"] = np.mean(ratios) if ratios else np.nan
-
-    # Ridge-features (Morlet CWT): dominante frequentie over tijd binnen het event
-    if "EEG L" in signals:
-        sig = signals["EEG L"]
-        ridge_feats = compute_ridge_features(sig, sf, start_i, end_i)
-        feats.update(ridge_feats)
-    else:
-        feats.update({
-            "ridge_onset_hz": np.nan,
-            "ridge_peak_hz": np.nan,
-            "ridge_end_hz": np.nan,
-        })
 
     # Motion features (accelerometer), als proxy voor beweging tijdens het event.
     # We combineren dX/dY/dZ eerst tot één vectormagnitude per sample
@@ -724,7 +580,7 @@ def main():
 
     # Per-nacht featurematrices PAS NU wegschrijven (na de globale herindexering hierboven),
     # zodat elk per-nacht bestand exact dezelfde event_idx-waarden bevat als het gecombineerde
-    # arousal_feature_matrix.csv -- anders zouden de losse bestanden nog de voorlopige,
+    # arousal_feature_matrix_ORIGIN.csv -- anders zouden de losse bestanden nog de voorlopige,
     # per-nacht-lokale event_idx uit process_night() hebben. Standaard CSV: komma-scheiding,
     # punt-decimaal — NIET Excel-NL-formaat, want dat corrumpeert bij openen/opslaan met een
     # niet-NL Excel-locale-instelling: decimale komma's worden dan als duizendtal-scheiding gelezen.
@@ -733,7 +589,7 @@ def main():
         group_df.drop(columns="_stem").to_csv(night_out_path, index=False, float_format="%.3f")
 
     feature_matrix = feature_matrix.drop(columns="_stem")
-    out_path = EVENTS_DIR / "arousal_feature_matrix.csv"
+    out_path = EVENTS_DIR / "arousal_feature_matrix_ORIGIN.csv"
     feature_matrix.to_csv(out_path, index=False, float_format="%.3f")
     print(f"\nFeaturematrix opgeslagen: {out_path}")
     print(f"Shape: {feature_matrix.shape}")

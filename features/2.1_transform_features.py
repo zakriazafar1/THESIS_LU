@@ -1,51 +1,33 @@
 """
 =============================================================================
-2_transform_features.py
+2.1_transform_features.py
 
-Preprocessing van de arousal-featurematrix (output van feature_matrix.py),
+Preprocessing van de arousal-featurematrix (output van 1_feature_matrix.py),
 vóór clustering.
 
-Stappenplan:
+Stappenplan (outlier-detectie tijdelijk verwijderd -- volgt na scaling):
   1. Visualiseer de verdeling van elke feature (histogram + skewness/kurtosis),
      en check op missings/inf.
   2. Transform skewed features: voor ELKE feature wordt automatisch gekozen
      tussen geen transform / signed-log1p / signed-sqrt, op basis van welke
-     variant de laagste |skew| oplevert (signed = sign(x)*f(|x|), werkt ook
-     voor features met negatieve waarden zoals ridge_drift). Zet features in
-     FORCE_UNTOUCHED_COLS als je ze expliciet nooit wil transformeren.
-     Skew wordt na transformatie opnieuw berekend en weggeschreven, samen met
-     welke variant per feature gekozen is (transform_choices.csv).
-  3. Outlier-detectie OP DE GETRANSFORMEERDE SCHAAL, met de klassieke IQR-regel
-     (1.5*IQR) -- op de log-schaal is de verdeling redelijk symmetrisch, dus is
-     de symmetrische regel weer betrouwbaar. Elke outlier-event wordt
-     weggeschreven met een automatisch gegenereerde, PUUR BESCHRIJVENDE notitie
-     (duur, sleep stage, welk kanaal/band, hoeveel buiten de grens) -- dit is
-     GEEN klinisch oordeel, gewoon de relevante feiten verzameld zodat jij/
-     Lucija kan beoordelen of het een plausibel arousal is of een artefact.
-     start_sec, end_sec en stage_rk staan er ook expliciet als kolommen bij,
-     zodat je het event ook rechtstreeks kan terugvinden/opzoeken.
-  4. Beslissing toepassen: vul de 'decision'-kolom in outlier_events.csv met
-     'winsorize' / 'remove' / 'keep' (leeg = keep) en run het script opnieuw
-     met --apply-decisions <pad naar ingevulde outlier_events.csv>.
-       - winsorize: die ene (event, feature)-waarde capt op het 1e/99e
-         percentiel van die feature (op de getransformeerde schaal).
-       - remove: het hele event (alle features) wordt uit de matrix verwijderd
-         -- als een event een artefact is, geldt dat voor de hele opname op
-         dat moment, niet alleen voor de ene feature die de grens overschreed.
-  5. Standaardiseren: StandardScaler (z-score) als default; voor kolommen die
-     na stap 2/4 nog steeds |skew| > ROBUST_SKEW_THRESHOLD hebben wordt
+     variant de laagste |skew| oplevert (signed = sign(x)*f(|x|), zodat het
+     ook correct zou werken mocht een feature negatieve waarden bevatten).
+     Zet features in FORCE_UNTOUCHED_COLS als je ze expliciet nooit wil
+     transformeren. Skew wordt na transformatie opnieuw berekend en
+     weggeschreven, samen met welke variant per feature gekozen is
+     (transform_choices.csv).
+  3. Standaardiseren: StandardScaler (z-score) als default; voor kolommen die
+     na stap 2 nog steeds |skew| > ROBUST_SKEW_THRESHOLD hebben wordt
      RobustScaler gebruikt (mediaan/IQR i.p.v. mean/std), minder gevoelig voor
-     de resterende extremen.
+     de resterende extremen. Draait direct op de getransformeerde matrix
+     (nog geen outlier-cleaning).
 
 Gebruik:
-  python 2_transform_features.py
-      -> stap 1, 2, 3. Schrijft o.a. outlier_events.csv weg met een lege
-         'decision'-kolom.
-  python 2_transform_features.py --apply-decisions pad/naar/ingevulde_outlier_events.csv
-      -> stap 4 (winsorize/remove op basis van de ingevulde decisions) + stap 5
-         (standaardiseren). Schrijft de uiteindelijke, klaar-voor-clustering
-         featurematrix weg.
-  python 2_transform_features.py --inspect-distributions   # print tabellen ook naar console
+  python 2.1_transform_features.py
+      -> stap 1, 2, 3. Schrijft de volledig getransformeerde + geschaalde
+         featurematrix weg, klaar om later (na scaling) alsnog op outliers
+         te inspecteren.
+  python 2.1_transform_features.py --inspect-distributions   # print tabellen ook naar console
 =============================================================================
 """
 
@@ -78,32 +60,19 @@ METADATA_COLS = [
     "start_sec", "end_sec", "sec_prev_event",
     "stage_rk",
 ]
-ID_COLS = ["subject_id", "night_id", "event_idx"]  # voor het opzoeken van individuele events
-# Extra metadata-kolommen die ALLEEN in outlier_events.csv worden meegenomen (context bij het
-# beoordelen van een outlier-event), niet gebruikt voor matching zoals ID_COLS.
-OUTLIER_CONTEXT_COLS = ["start_sec", "end_sec", "stage_rk"]
 
 N_COLS_GRID = 5  # aantal subplots per rij in de histogram-grid
 
 # Stap 2: voor ELKE feature wordt automatisch gekozen tussen 3 varianten --
 # geen transform, signed-log1p, signed-sqrt -- op basis van welke de laagste
-# |skew| oplevert (signed = sign(x)*f(|x|), werkt ook voor features met
-# negatieve waarden zoals ridge_drift). Zet hier features in die je expliciet
-# NOOIT wil transformeren (bv. om domein-redenen), ook al zou een transform
-# de skew technisch verlagen.
+# |skew| oplevert (signed = sign(x)*f(|x|), zodat het ook correct zou werken
+# mocht een feature negatieve waarden bevatten). Zet hier features in die je
+# expliciet NOOIT wil transformeren (bv. om domein-redenen), ook al zou een
+# transform de skew technisch verlagen.
 FORCE_UNTOUCHED_COLS: list[str] = []
 
-# Stap 3: IQR-methode voor outlier-detectie op de getransformeerde schaal.
-OUTLIER_IQR_MULT = 1.5
-
-# Stap 4: winsorize-grenzen (percentiel op de getransformeerde schaal).
-WINSOR_LOWER_Q = 0.01
-WINSOR_UPPER_Q = 0.99
-
-# Stap 5: kolommen met |skew| boven deze drempel (ná stap 2/4) krijgen RobustScaler i.p.v. StandardScaler.
+# Stap 3: kolommen met |skew| boven deze drempel (ná stap 2) krijgen RobustScaler i.p.v. StandardScaler.
 ROBUST_SKEW_THRESHOLD = 2.0
-
-STAGE_LABELS = {0: "wake", 1: "N1", 2: "N2", 3: "N3", 4: "N4", 5: "REM"}
 
 
 # =============================================================================
@@ -117,7 +86,7 @@ def load_feature_matrix(path: Path) -> pd.DataFrame:
     daarna of numerieke kolommen alsnog als tekst zijn binnengekomen (het
     Excel-NL-scenario: puntkomma als veld-scheiding EN komma als decimaal-
     teken, bv. "1,234" i.p.v. "1.234") -- zo ja, dan wordt opnieuw ingelezen
-    met decimal=",". feature_matrix.py zelf schrijft altijd standaard-CSV,
+    met decimal=",". 1_feature_matrix.py zelf schrijft altijd standaard-CSV,
     maar garandeert niet dat het bestand nooit per ongeluk in Excel met een
     NL-locale geopend en opgeslagen wordt.
     """
@@ -299,169 +268,16 @@ def apply_best_transform_group(df: pd.DataFrame, cols: list[str]) -> tuple[pd.Da
 
 
 # =============================================================================
-# SECTIE 5 — OUTLIER DETECTIE (STAP 3)
-# =============================================================================
-
-def compute_outlier_summary(df: pd.DataFrame, feature_cols: list[str],
-                             iqr_mult: float = OUTLIER_IQR_MULT) -> pd.DataFrame:
-    """
-    Klassieke Tukey-IQR-regel (Q1 - mult*IQR, Q3 + mult*IQR), toegepast op de
-    getransformeerde (stap 2) kolommen -- daar redelijk symmetrisch, dus deze
-    symmetrische regel is hier op zijn plaats.
-    """
-    rows = []
-    n = len(df)
-    for col in feature_cols:
-        vals = df[col].replace([np.inf, -np.inf], np.nan).dropna()
-        if len(vals) < 4:
-            rows.append({"feature": col, "q1": np.nan, "q3": np.nan, "iqr": np.nan,
-                         "lower_bound": np.nan, "upper_bound": np.nan,
-                         "n_outliers": np.nan, "pct_outliers": np.nan})
-            continue
-        q1, q3 = vals.quantile([0.25, 0.75])
-        iqr = q3 - q1
-        lower = q1 - iqr_mult * iqr
-        upper = q3 + iqr_mult * iqr
-        n_out = int(((vals < lower) | (vals > upper)).sum())
-        rows.append({
-            "feature": col, "q1": round(q1, 3), "q3": round(q3, 3), "iqr": round(iqr, 3),
-            "lower_bound": round(lower, 3), "upper_bound": round(upper, 3),
-            "n_outliers": n_out,
-            "pct_outliers": round(100 * n_out / n, 2) if n else np.nan,
-        })
-    summary = pd.DataFrame(rows).sort_values("pct_outliers", ascending=False).reset_index(drop=True)
-    return summary
-
-
-def _describe_feature(feature: str) -> str:
-    """Vertaalt een kolomnaam naar een leesbare kanaal/band-omschrijving, voor de notitie."""
-    if feature.startswith(("L_", "R_")):
-        channel = "links (L)" if feature.startswith("L_") else "rechts (R)"
-        band = feature.split("_")[1] if "_" in feature else feature
-        metric = "piekamplitude" if "peak" in feature else "gemiddelde amplitude"
-        return f"{band}-band, {channel} kanaal, {metric} t.o.v. whole-night mediaan"
-    if feature.startswith("mean_"):
-        band = feature.split("_")[1]
-        return f"{band}-band, gemiddeld over L/R kanalen"
-    if feature.startswith("ridge_"):
-        return f"Morlet-ridge kenmerk ({feature})"
-    return feature
-
-
-def generate_descriptive_note(feature: str, raw_value: float, transformed_value: float,
-                               bound: str, stage_rk, duration_sec) -> str:
-    """
-    PUUR BESCHRIJVEND, geen klinisch oordeel: verzamelt de feiten die relevant
-    zijn om te beoordelen of dit een plausibel arousal-event is of een
-    vermoedelijk artefact -- welk kanaal/band, hoe ver buiten de grens, sleep
-    stage, en event-duur. De uiteindelijke beoordeling (winsorize/remove/keep)
-    is aan jou/Lucija.
-    """
-    parts = [_describe_feature(feature)]
-    parts.append(f"ruwe waarde={raw_value:.3g}, log/sqrt-getransformeerd={transformed_value:.3g} "
-                 f"({'boven' if bound == 'hoog' else 'onder'} de IQR-grens op de getransformeerde schaal)")
-    if pd.notna(stage_rk):
-        parts.append(f"sleep stage={STAGE_LABELS.get(int(stage_rk), stage_rk)}")
-    if pd.notna(duration_sec):
-        parts.append(f"event-duur={duration_sec:.1f}s")
-    return "; ".join(parts)
-
-
-def flag_outlier_events(df_raw: pd.DataFrame, df_transformed: pd.DataFrame,
-                         outlier_summary: pd.DataFrame) -> pd.DataFrame:
-    """
-    Voor elke feature met outliers: alle events die buiten de IQR-grenzen
-    vallen (op de getransformeerde schaal), met identifiers, extra context
-    (start_sec, end_sec, stage_rk), ruwe + getransformeerde waarde, een
-    automatisch gegenereerde descriptive_note, en een LEGE 'decision'-kolom
-    (in te vullen met winsorize/remove/keep vóór je --apply-decisions draait).
-    '_row_index' is de originele rij-index in de featurematrix, nodig om de
-    decision straks weer terug te koppelen.
-    """
-    id_cols = [c for c in ID_COLS if c in df_raw.columns]
-    context_cols = [c for c in OUTLIER_CONTEXT_COLS if c in df_raw.columns]
-    rows = []
-    for _, r in outlier_summary.dropna(subset=["n_outliers"]).iterrows():
-        if r["n_outliers"] == 0:
-            continue
-        feat = r["feature"]
-        vals = df_transformed[feat].replace([np.inf, -np.inf], np.nan)
-        mask = (vals < r["lower_bound"]) | (vals > r["upper_bound"])
-        idx = df_raw.index[mask]
-
-        for i in idx:
-            bound = "laag" if vals.loc[i] < r["lower_bound"] else "hoog"
-            stage = df_raw.loc[i, "stage_rk"] if "stage_rk" in df_raw.columns else np.nan
-            duration = df_raw.loc[i, "duration_sec"] if "duration_sec" in df_raw.columns else np.nan
-            note = generate_descriptive_note(
-                feat, df_raw.loc[i, feat], df_transformed.loc[i, feat], bound, stage, duration
-            )
-            row = {"_row_index": i, "feature": feat}
-            for c in id_cols:
-                row[c] = df_raw.loc[i, c]
-            for c in context_cols:
-                row[c] = df_raw.loc[i, c]
-            row.update({
-                "raw_value": df_raw.loc[i, feat],
-                "transformed_value": df_transformed.loc[i, feat],
-                "bound": bound,
-                "descriptive_note": note,
-                "decision": "",  # in te vullen: winsorize / remove / keep (leeg = keep)
-            })
-            rows.append(row)
-
-    if not rows:
-        return pd.DataFrame(columns=["_row_index", "feature"] + id_cols + context_cols +
-                             ["raw_value", "transformed_value", "bound", "descriptive_note", "decision"])
-    return pd.DataFrame(rows)
-
-
-# =============================================================================
-# SECTIE 6 — DECISIONS TOEPASSEN: WINSORIZE / REMOVE (STAP 4)
-# =============================================================================
-
-def apply_outlier_decisions(df_transformed: pd.DataFrame, outlier_events: pd.DataFrame) -> pd.DataFrame:
-    """
-    Past de handmatig ingevulde 'decision'-kolom toe op de getransformeerde
-    featurematrix:
-      - 'winsorize': capt DIE ENE (event, feature)-waarde op het 1e/99e
-        percentiel van die feature (op de getransformeerde schaal).
-      - 'remove': verwijdert het HELE event (alle features), niet alleen de
-        ene kolom die de grens overschreed.
-      - leeg of 'keep': geen wijziging.
-    """
-    df_clean = df_transformed.copy()
-    decisions = outlier_events["decision"].astype(str).str.strip().str.lower()
-
-    winsor_rows = outlier_events[decisions == "winsorize"]
-    for _, r in winsor_rows.iterrows():
-        feat = r["feature"]
-        idx = r["_row_index"]
-        lower_cap = df_clean[feat].quantile(WINSOR_LOWER_Q)
-        upper_cap = df_clean[feat].quantile(WINSOR_UPPER_Q)
-        cap = lower_cap if r["bound"] == "laag" else upper_cap
-        df_clean.loc[idx, feat] = cap
-
-    remove_idx = outlier_events.loc[decisions == "remove", "_row_index"].unique()
-    n_before = len(df_clean)
-    df_clean = df_clean.drop(index=[i for i in remove_idx if i in df_clean.index])
-
-    print(f"Decisions toegepast: {len(winsor_rows)} waarden gewinsorized, "
-          f"{n_before - len(df_clean)} events volledig verwijderd.")
-    return df_clean
-
-
-# =============================================================================
-# SECTIE 7 — STANDAARDISEREN (STAP 5)
+# SECTIE 5 — STANDAARDISEREN (STAP 3)
 # =============================================================================
 
 def scale_features(df: pd.DataFrame, feature_cols: list[str],
                     robust_threshold: float = ROBUST_SKEW_THRESHOLD) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     StandardScaler (z-score) als default; RobustScaler (mediaan/IQR) voor
-    kolommen die na stap 2 (en evt. stap 4) nog steeds |skew| > robust_threshold
-    hebben. Geeft de geschaalde df terug plus een overzicht van welke scaler
-    per kolom is gebruikt.
+    kolommen die na stap 2 nog steeds |skew| > robust_threshold hebben. Geeft
+    de geschaalde df terug plus een overzicht van welke scaler per kolom is
+    gebruikt.
     """
     out = df.copy()
     rows = []
@@ -490,7 +306,7 @@ def scale_features(df: pd.DataFrame, feature_cols: list[str],
 # HOOFDLOOP
 # =============================================================================
 
-def run_steps_1_to_3(df: pd.DataFrame, feature_cols: list[str], verbose: bool) -> pd.DataFrame:
+def run_steps_1_and_2(df: pd.DataFrame, feature_cols: list[str], verbose: bool) -> pd.DataFrame:
     # --- Stap 1 ---
     missing_summary = summarize_missingness(df, feature_cols)
     dist_stats = compute_distribution_stats(df, feature_cols)
@@ -530,18 +346,6 @@ def run_steps_1_to_3(df: pd.DataFrame, feature_cols: list[str], verbose: bool) -
     print("  - arousal_feature_matrix_transformed.csv\n  - distribution_stats_transformed.csv"
           "\n  - transform_choices.csv\n  - feature_distributions_transformed.png")
 
-    # --- Stap 3 ---
-    outlier_summary = compute_outlier_summary(df_t, feature_cols)
-    outlier_events = flag_outlier_events(df, df_t, outlier_summary)
-
-    outlier_summary.to_csv(OUTPUT_DIR / "outlier_summary.csv", index=False)
-    outlier_events.to_csv(OUTPUT_DIR / "outlier_events.csv", index=False)
-    print(f"\nStap 3: {len(outlier_events)} outlier-(event, feature)-paren gevonden "
-          f"(IQR op getransformeerde schaal).")
-    print("  - outlier_summary.csv\n  - outlier_events.csv  <- vul hier de 'decision'-kolom in")
-    print("\nVul de 'decision'-kolom in outlier_events.csv in (winsorize/remove/keep) en run:")
-    print("  python 2_transform_features.py --apply-decisions <pad naar ingevulde outlier_events.csv>")
-
     if verbose:
         print("\n--- Missing / inf overzicht ---")
         print(missing_summary.to_string(index=False))
@@ -549,30 +353,19 @@ def run_steps_1_to_3(df: pd.DataFrame, feature_cols: list[str], verbose: bool) -
         print(dist_stats.to_string(index=False))
         print("\n--- Skewness / kurtosis NA transformatie ---")
         print(dist_stats_after.to_string(index=False))
-        print("\n--- Outlier-overzicht (IQR op getransformeerde schaal) ---")
-        print(outlier_summary.to_string(index=False))
 
     return df_t
 
 
-def run_steps_4_and_5(df_t: pd.DataFrame, feature_cols: list[str], decisions_path: Path) -> None:
-    outlier_events = pd.read_csv(decisions_path)
-    if "decision" not in outlier_events.columns:
-        raise ValueError(f"{decisions_path} heeft geen 'decision'-kolom -- eerst invullen.")
-
-    # --- Stap 4 ---
-    df_clean = apply_outlier_decisions(df_t, outlier_events)
-    df_clean.to_csv(OUTPUT_DIR / "arousal_feature_matrix_cleaned.csv", index=False)
-    print("  - arousal_feature_matrix_cleaned.csv")
-
-    # --- Stap 5 ---
-    df_scaled, scaler_summary = scale_features(df_clean, feature_cols)
+def run_step_3(df_t: pd.DataFrame, feature_cols: list[str]) -> None:
+    # --- Stap 3 ---
+    df_scaled, scaler_summary = scale_features(df_t, feature_cols)
     df_scaled.to_csv(OUTPUT_DIR / "arousal_feature_matrix_scaled.csv", index=False)
     scaler_summary.to_csv(OUTPUT_DIR / "scaler_summary.csv", index=False)
     n_robust = (scaler_summary["scaler_used"].str.startswith("Robust")).sum()
-    print(f"\nStap 5: {n_robust} van de {len(feature_cols)} features geschaald met RobustScaler "
+    print(f"\nStap 3: {n_robust} van de {len(feature_cols)} features geschaald met RobustScaler "
           f"(rest StandardScaler).")
-    print("  - arousal_feature_matrix_scaled.csv  <- klaar voor clustering")
+    print("  - arousal_feature_matrix_scaled.csv  <- klaar voor clustering (outlier-check volgt hierna)")
     print("  - scaler_summary.csv")
 
 
@@ -580,9 +373,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT,
                          help="Pad naar arousal_feature_matrix.csv")
-    parser.add_argument("--apply-decisions", type=Path, default=None,
-                         help="Pad naar een outlier_events.csv met ingevulde 'decision'-kolom "
-                              "-> voert stap 4 (winsorize/remove) en stap 5 (standaardiseren) uit")
     parser.add_argument("--inspect-distributions", action="store_true",
                          help="Print de volledige tabellen ook naar de console")
     args = parser.parse_args()
@@ -591,10 +381,8 @@ def main():
     feature_cols = get_feature_columns(df)
     print(f"\n{len(feature_cols)} features (metadata-kolommen uitgesloten): {feature_cols}")
 
-    df_t = run_steps_1_to_3(df, feature_cols, verbose=args.inspect_distributions)
-
-    if args.apply_decisions:
-        run_steps_4_and_5(df_t, feature_cols, args.apply_decisions)
+    df_t = run_steps_1_and_2(df, feature_cols, verbose=args.inspect_distributions)
+    run_step_3(df_t, feature_cols)
 
 
 if __name__ == "__main__":
