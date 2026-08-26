@@ -40,10 +40,15 @@ Input:
     and carried through untouched rather than fed into UMAP.
 
 Output (per n_components value):
-    umap_output/embedding_{n}d.csv   - identifier columns + UMAP_1..UMAP_n
-    umap_output/embedding_{n}d.npy   - raw embedding array
-    umap_output/umap_2d_scatter.png  - diagnostic scatter (only for n=2)
-    umap_output/run_summary.json     - parameters + basic diagnostics per run
+    umap_output/embedding_{n}d.csv        - identifier columns + UMAP_1..UMAP_n
+    umap_output/embedding_{n}d.npy        - raw embedding array
+    umap_output/correlation_{n}d.csv      - Pearson r of each diagnostic feature
+                                             vs. each UMAP axis, for that run
+    umap_output/umap_2d_scatter.png       - diagnostic scatter (only for n=2)
+    umap_output/umap_2d_small_multiples.png - 2D scatter colored by each
+                                             diagnostic feature, one panel per
+                                             feature (only for n=2)
+    umap_output/run_summary.json          - parameters + basic diagnostics per run
 """
 
 import argparse
@@ -75,13 +80,69 @@ DEFAULT_OUTPUT_DIR = Path(
 # Columns that are identifiers/metadata, not features - carried through as-is
 # and excluded from the UMAP input. Adjust to match your actual ID columns.
 DEFAULT_ID_COLUMNS = [
-    "participant_id", "night_id", "event_id", "arousal_id",
-    "onset_time", "onset_sample", "label", "subtype",
+    "subject_id", "group", "night_id", "stage_rk", "event_idx",
+    "start_sec", "end_sec", "duration_sec", "sec_prev_event",
+]
+
+# Features to inspect the embedding against: small-multiples panels + a
+# correlation table. These are read straight from the input CSV (df), so
+# they work whether or not they're also part of the UMAP input itself -
+# e.g. duration_sec is an ID column here but still worth checking against
+# the embedding it didn't influence.
+DIAGNOSTIC_FEATURES = [
+    "duration_sec", "mean_alpha_ratio", "mean_theta_ratio", "mean_beta_ratio",
+    "mean_sigma_ratio", "mean_delta_ratio", "oxy_amp_ratio", "motion_rms",
 ]
 
 
+def detect_delimiter(path: Path, sample_lines: int = 5) -> str:
+    """Sniff whether the CSV uses ',' or ';' as the field delimiter."""
+    import csv as csv_module
+
+    with open(path, "r", encoding="utf-8-sig") as f:
+        sample = "".join(f.readline() for _ in range(sample_lines))
+    try:
+        dialect = csv_module.Sniffer().sniff(sample, delimiters=";,\t")
+        return dialect.delimiter
+    except csv_module.Error:
+        return ","
+
+
+def detect_decimal(path: Path, delimiter: str, sample_lines: int = 20) -> str:
+    """Inspect a few data rows to see whether floats use ',' or '.' as the
+    decimal separator. Delimiter and decimal separator are independent - a
+    ';'-delimited file can still use '.' decimals (e.g. if it was written by
+    pandas/numpy already, as opposed to exported from Excel in a Dutch
+    locale), so this must not be inferred from the delimiter alone.
+    """
+    import re
+
+    comma_decimal = re.compile(r"^-?\d+,\d+$")
+    dot_decimal = re.compile(r"^-?\d+\.\d+$")
+    comma_hits, dot_hits = 0, 0
+
+    with open(path, "r", encoding="utf-8-sig") as f:
+        next(f, None)  # skip header
+        for _ in range(sample_lines):
+            line = f.readline()
+            if not line:
+                break
+            for field in line.strip().split(delimiter):
+                field = field.strip()
+                if comma_decimal.match(field):
+                    comma_hits += 1
+                elif dot_decimal.match(field):
+                    dot_hits += 1
+
+    return "," if comma_hits > dot_hits else "."
+
+
 def load_features(path: Path, id_columns):
-    df = pd.read_csv(path)
+    delimiter = detect_delimiter(path)
+    decimal = detect_decimal(path, delimiter)
+    df = pd.read_csv(path, sep=delimiter, decimal=decimal)
+    print(f"Detected delimiter='{delimiter}', decimal='{decimal}'")
+
     present_id_cols = [c for c in id_columns if c in df.columns]
     feature_cols = [c for c in df.columns if c not in present_id_cols]
 
@@ -137,6 +198,61 @@ def make_2d_plot(embedding, out_path):
     plt.close(fig)
 
 
+def make_small_multiples(df, embedding, features, out_path):
+    """One panel per diagnostic feature: the same 2D UMAP scatter, colored
+    by that feature's (already-scaled) value. Only meaningful for a 2D
+    embedding - uses the first two axes as x/y.
+    """
+    import math
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    present = [f for f in features if f in df.columns]
+    missing = [f for f in features if f not in df.columns]
+    if missing:
+        print(f"  NOTE: diagnostic features not found in input, skipping: {missing}")
+    if not present:
+        print("  NOTE: no diagnostic features found - skipping small multiples.")
+        return
+
+    n = len(present)
+    n_cols = min(4, n)
+    n_rows = math.ceil(n / n_cols)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.2 * n_cols, 4 * n_rows))
+    axes = np.atleast_1d(axes).ravel()
+
+    for ax, feature in zip(axes, present):
+        sc = ax.scatter(
+            embedding[:, 0], embedding[:, 1],
+            c=df[feature], cmap="viridis", s=6, alpha=0.6, linewidths=0,
+        )
+        ax.set_title(feature, fontsize=10)
+        ax.set_xlabel("UMAP_1")
+        ax.set_ylabel("UMAP_2")
+        fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+
+    for ax in axes[len(present):]:
+        ax.axis("off")
+
+    fig.suptitle("UMAP embedding (2D) colored by diagnostic features", y=1.02)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def compute_correlation_table(df, embedding, features, n_components):
+    """Pearson correlation of each diagnostic feature against each UMAP axis
+    for one embedding run. Rows = features, columns = UMAP_1..UMAP_n.
+    """
+    present = [f for f in features if f in df.columns]
+    umap_cols = [f"UMAP_{i + 1}" for i in range(n_components)]
+    emb_df = pd.DataFrame(embedding, columns=umap_cols, index=df.index)
+    combined = pd.concat([df[present], emb_df], axis=1)
+    corr = combined.corr().loc[present, umap_cols]
+    return corr
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT,
@@ -152,6 +268,8 @@ def main():
                          help="Distance metric for UMAP (default: euclidean, since input is already RobustScaler-standardized)")
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--id-columns", type=str, nargs="*", default=DEFAULT_ID_COLUMNS)
+    parser.add_argument("--diagnostic-features", type=str, nargs="*", default=DIAGNOSTIC_FEATURES,
+                         help="Features to check the embedding against: small multiples + correlation table")
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -187,10 +305,19 @@ def main():
         print(f"  Saved {csv_path}")
         print(f"  Saved {npy_path}")
 
+        corr = compute_correlation_table(df, embedding, args.diagnostic_features, n_comp)
+        corr_path = args.output_dir / f"correlation_{n_comp}d.csv"
+        corr.to_csv(corr_path)
+        print(f"  Saved {corr_path}")
+
         if n_comp == 2:
             plot_path = args.output_dir / "umap_2d_scatter.png"
             make_2d_plot(embedding, plot_path)
             print(f"  Saved {plot_path}")
+
+            multiples_path = args.output_dir / "umap_2d_small_multiples.png"
+            make_small_multiples(df, embedding, args.diagnostic_features, multiples_path)
+            print(f"  Saved {multiples_path}")
 
         summary["runs"].append({
             "n_components": n_comp,
