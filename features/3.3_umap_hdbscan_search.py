@@ -76,7 +76,7 @@ DEFAULT_INPUT = Path(
 )
 DEFAULT_OUTPUT_DIR = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
-    r"\THESIS_OUTPUTS\PROJECT 2\3. feature selection\umap_hdbscan_search"
+    r"\THESIS_OUTPUTS\PROJECT 2\3. feature selection\umap_hdbscan_search\3"
 )
 
 DEFAULT_ID_COLUMNS = [
@@ -84,16 +84,13 @@ DEFAULT_ID_COLUMNS = [
     "start_sec", "end_sec", "duration_sec", "sec_prev_event",
 ]
 
-# Full default grid. 4 x 2 x 3 UMAP configs x 3 seeds = 72 UMAP fits, each
-# reused across 3 x 3 = 9 HDBSCAN configs -> 648 HDBSCAN runs. UMAP fitting
-# dominates the runtime; on ~1300 events x 27 features this is on the order
-# of minutes, not hours. Use --quick for a much smaller sanity-check grid.
-DEFAULT_N_NEIGHBORS = [15, 30, 50, 75, 100]
+# Full default grid. Use --quick for a much smaller sanity-check grid.
+DEFAULT_N_NEIGHBORS = [15,20,25]
 DEFAULT_MIN_DIST = [0.0, 0.05, 0.1]
-DEFAULT_N_COMPONENTS = [2, 3, 4, 5, 6, 7]
-DEFAULT_MIN_CLUSTER_SIZE = [15, 25, 50]
-DEFAULT_MIN_SAMPLES = [5, 10, 15]
-DEFAULT_SEEDS = [42, 7, 123, 567]
+DEFAULT_N_COMPONENTS = [2, 5, 10]
+DEFAULT_MIN_CLUSTER_SIZE = [15, ]
+DEFAULT_MIN_SAMPLES = [5, 10, 12, 15]
+DEFAULT_SEEDS = [42, 7, 123, 567, 684]
 
 QUICK_N_NEIGHBORS = [30, 50]
 QUICK_MIN_DIST = [0.0]
