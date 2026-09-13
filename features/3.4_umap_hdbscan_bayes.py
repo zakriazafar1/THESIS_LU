@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 3.4_umap_hdbscan_bayes.py
 
@@ -391,19 +390,19 @@ def main():
 
     # search space bounds (ranges, not fixed lists - Optuna samples within them).
     parser.add_argument("--n-neighbors-min", type=int, default=15)
-    parser.add_argument("--n-neighbors-max", type=str, default="100")
+    parser.add_argument("--n-neighbors-max", type=str, default="300")
     parser.add_argument("--min-dist-min", type=float, default=0.0)
     parser.add_argument("--min-dist-max", type=str, default="0.2")
-    parser.add_argument("--n-components-min", type=int, default=2)
-    parser.add_argument("--n-components-max", type=str, default="10")
+    parser.add_argument("--n-components-min", type=int, default=15)
+    parser.add_argument("--n-components-max", type=str, default="15")
     parser.add_argument("--min-cluster-size-min", type=int, default=10)
-    parser.add_argument("--min-cluster-size-max", type=str, default="60")
+    parser.add_argument("--min-cluster-size-max", type=str, default="100")
     parser.add_argument("--min-samples-min", type=int, default=3)
     parser.add_argument("--min-samples-max", type=str, default="none",
                          help="'none' (default) caps at min_cluster_size per-trial; or a fixed number")
 
     # search phase
-    parser.add_argument("--n-trials", type=int, default=60)
+    parser.add_argument("--n-trials", type=int, default=100)
     parser.add_argument("--search-seeds", type=int, nargs="+", default=[42],
                          help="One or more UMAP seeds, averaged over each trial for a more stable search signal")
     parser.add_argument("--study-seed", type=int, default=42,
