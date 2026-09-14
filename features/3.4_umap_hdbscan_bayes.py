@@ -186,12 +186,15 @@ def load_features(path: Path, id_columns):
             f"Non-numeric columns found in what should be the feature set: "
             f"{non_numeric}. Add them to --id-columns if they're identifiers."
         )
-    if df[feature_cols].isna().any().any():
-        raise ValueError("Found NaNs in the feature matrix - impute/drop them upstream.")
+
+    nan_mask = df[feature_cols].isna().any(axis=1)
+    n_nan_rows = nan_mask.sum()
+    if n_nan_rows > 0:
+        print(f"  Dropping {n_nan_rows} of {len(df)} events with NaN in feature columns")
+        df = df.loc[~nan_mask].reset_index(drop=True)
 
     print(f"Loaded {len(df)} events x {len(feature_cols)} features")
     return df, feature_cols
-
 
 def fit_and_score(X, n_neighbors, min_dist, n_components, min_cluster_size, min_samples, seed, metric,
                    trustworthiness_n_neighbors):
