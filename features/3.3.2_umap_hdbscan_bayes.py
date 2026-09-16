@@ -1,7 +1,7 @@
 """
-3.4_umap_hdbscan_bayes.py
+3.3.2_umap_hdbscan_bayes.py
 
-Adaptive version of 3.3_umap_hdbscan_search.py: instead of trying every
+Adaptive version of 3.3.1_umap_hdbscan_manual.py: instead of trying every
 combination in a fixed grid, this uses Bayesian optimization (Optuna's TPE
 sampler) to pick the next UMAP+HDBSCAN configuration to try based on how
 well previous configurations scored - spending more trials in promising
@@ -45,16 +45,16 @@ plotted against trial number. Once that curve flattens out, more trials are
 mostly wasted compute - this replaces guessing a --n-trials number up front
 with actually looking at whether the search has plateaued.
 
-This does NOT replace 3.3_umap_hdbscan_search.py - a fixed grid is still
+This does NOT replace 3.3.1_umap_hdbscan_manual.py - a fixed grid is still
 useful for exhaustively checking a small, deliberately chosen set of
 values. Use this instead when you want to search wider ranges without
 manually choosing which values in that range to test.
 
 Usage:
-    python 3.4_umap_hdbscan_bayes.py                        # default search + refine
-    python 3.4_umap_hdbscan_bayes.py --n-trials 30           # quicker search
-    python 3.4_umap_hdbscan_bayes.py --search-seeds 42 7 123 # average search over 3 seeds
-    python 3.4_umap_hdbscan_bayes.py --n-neighbors-max none  # auto ceiling based on n_events
+    python 3.3.2_umap_hdbscan_bayes.py                        # default search + refine
+    python 3.3.2_umap_hdbscan_bayes.py --n-trials 30           # quicker search
+    python 3.3.2_umap_hdbscan_bayes.py --search-seeds 42 7 123 # average search over 3 seeds
+    python 3.3.2_umap_hdbscan_bayes.py --n-neighbors-max none  # auto ceiling based on n_events
 
 Output:
     bayesopt_trials.csv         - every trial from the search phase (params,
@@ -69,7 +69,7 @@ Output:
                                    trustworthiness per run
     bayesopt_refined_ranked.csv - refine-phase results aggregated over
                                    seeds, ranked best-first (same format as
-                                   3.3's hdbscan_search_ranked.csv), with
+                                   3.3.1's hdbscan_search_ranked.csv), with
                                    added mean/std trustworthiness columns
 """
 

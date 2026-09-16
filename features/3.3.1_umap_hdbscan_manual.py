@@ -1,5 +1,5 @@
 """
-3.3_umap_hdbscan_search.py
+3.3.1_umap_hdbscan_manual.py
 
 Step 3 of the arousal-subtyping pipeline: data-driven search over UMAP +
 HDBSCAN parameters, since there are no ground-truth subtype labels to
@@ -33,8 +33,8 @@ validity alone):
     --max-noise-fraction  maximum fraction of points HDBSCAN may label noise (default 0.3)
 
 Usage:
-    python 3.3_umap_hdbscan_search.py            # full default grid
-    python 3.3_umap_hdbscan_search.py --quick     # small grid, for a fast sanity check
+    python 3.3.1_umap_hdbscan_manual.py            # full default grid
+    python 3.3.1_umap_hdbscan_manual.py --quick     # small grid, for a fast sanity check
 
 Output:
     hdbscan_search_raw.csv     - every individual run (one row per UMAP config
@@ -47,7 +47,7 @@ Output:
 import argparse
 import itertools
 import sys
-import time
+import time         
 from pathlib import Path
 
 import numpy as np

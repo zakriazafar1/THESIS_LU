@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-run_all_cluster_inspect.py
+3.4.2_all_cluster_inspect.py
 
-Batch runner for 3.5_cluster_inspect.py: reads a CSV of UMAP+HDBSCAN
+Batch runner for 3.4.1_cluster_inspect.py: reads a CSV of UMAP+HDBSCAN
 parameter combinations (e.g. bayesopt_refined_ranked2.csv, the ranked
-output of 3.4_umap_hdbscan_bayes.py) and runs 3.5_cluster_inspect.py once
+output of 3.3.2_umap_hdbscan_bayes.py) and runs 3.4.1_cluster_inspect.py once
 per combination - each into its own subfolder - so you get the full
 inspection output (embedding CSV, scatter, boxplots, summary) for every
 combination in one go, instead of running it by hand per combo.
@@ -14,27 +14,27 @@ single all_combos_summary.csv (tagged with each combo's parameters and
 rank), so you can compare cluster counts/sizes/composition across
 combinations without opening every subfolder individually.
 
-3.5_cluster_inspect.py itself is NOT modified - this just calls it
+3.4.1_cluster_inspect.py itself is NOT modified - this just calls it
 repeatedly as a subprocess with different --output-dir / parameter values.
 
 Usage:
-    python run_all_cluster_inspect.py --combos bayesopt_refined_ranked2.csv
+    python 3.4.2_all_cluster_inspect.py --combos bayesopt_refined_ranked2.csv
 
     # only run the first N rows (as ordered in the CSV, i.e. top-ranked)
-    python run_all_cluster_inspect.py --combos bayesopt_refined_ranked2.csv --top 10
+    python 3.4.2_all_cluster_inspect.py --combos bayesopt_refined_ranked2.csv --top 10
 
     # point at a non-default script/input/output location
-    python 3.5_all_cluster_inspect.py --combos bayesopt_refined_ranked2.csv ^
-        --script "C:\\path\\to\\3.5_cluster_inspect.py" ^
+    python 3.4.2_all_cluster_inspect.py --combos bayesopt_refined_ranked2.csv ^
+        --script "C:\\path\\to\\3.4.1_cluster_inspect.py" ^
         --input  "C:\\path\\to\\arousal_feature_matrix_scaled.csv" ^
         --output-root "C:\\path\\to\\cluster_inspect_batch"
 
     # just print the commands without running them
-    python 3.5_all_cluster_inspect.py --combos bayesopt_refined_ranked2.csv --dry-run
+    python 3.4.2_all_cluster_inspect.py --combos bayesopt_refined_ranked2.csv --dry-run
 
 Output (under --output-root):
     rank01_nn17_md0.0415_nc2_mcs11_ms5/   <- one subfolder per combo, containing
-        embedding_with_clusters.csv           the normal 3.5_cluster_inspect.py output
+        embedding_with_clusters.csv           the normal 3.4.1_cluster_inspect.py output
         cluster_scatter.png                   (scatter skipped when n_components != 2,
         cluster_boxplots.png                   exactly like the underlying script does)
         cluster_summary.csv
@@ -53,7 +53,7 @@ from pathlib import Path
 import pandas as pd
 
 DEFAULT_SCRIPT = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_LU\features\3.5_cluster_inspect.py"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_LU\features\3.4.1_cluster_inspect.py"
 )
 DEFAULT_INPUT = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
@@ -107,7 +107,7 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--combos", type=Path, required=True, help="CSV with parameter combinations")
-    parser.add_argument("--script", type=Path, default=DEFAULT_SCRIPT, help="Path to 3.5_cluster_inspect.py")
+    parser.add_argument("--script", type=Path, default=DEFAULT_SCRIPT, help="Path to 3.4.1_cluster_inspect.py")
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT, help="Feature matrix CSV, passed through as --input")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--top", type=int, default=None, help="Only run the first N rows of the CSV")
@@ -117,14 +117,14 @@ def main():
     args = parser.parse_args()
 
     if not args.script.exists():
-        sys.exit(f"Can't find 3.5_cluster_inspect.py at: {args.script}\n"
+        sys.exit(f"Can't find 3.4.1_cluster_inspect.py at: {args.script}\n"
                   f"Pass its real location with --script.")
 
     delimiter = detect_delimiter(args.combos)
     combos = pd.read_csv(args.combos, sep=delimiter)
     combos.columns = [c.strip() for c in combos.columns]
     missing = [c for c in PARAM_COLUMNS if c not in combos.columns]
-    if missing:
+    if missing:    
         sys.exit(f"CSV is missing expected columns: {missing}")
 
     if args.top:

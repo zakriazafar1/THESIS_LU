@@ -1,9 +1,9 @@
 """
-3.5_cluster_inspect.py
+3.4.1_cluster_inspect.py
 
 Step 4 of the arousal-subtyping pipeline: take one specific, already-chosen
 UMAP + HDBSCAN parameter combination (e.g. the winner from
-3.4_umap_hdbscan_bayes.py) and actually produce the clustering + inspection
+3.3.2_umap_hdbscan_bayes.py) and actually produce the clustering + inspection
 visuals, so you can judge whether the clusters mean anything - instead of
 just looking at validity numbers.
 
@@ -11,7 +11,7 @@ This does three things:
     1. Fits UMAP once with your chosen parameters (defaults below match the
        n_components=2 winner: n_neighbors=17, min_dist=0.04146).
     2. Runs HDBSCAN on that embedding with your chosen min_cluster_size /
-       min_samples (defaults: 11 / 5).
+       min_samples.
     3. Produces:
        - the embedding + cluster labels as a CSV
        - a scatter plot colored by cluster label (noise in gray)
@@ -23,8 +23,8 @@ This does three things:
          cluster, and the sleep-stage (stage_rk) composition per cluster
 
 Usage:
-    python 3.5_cluster_inspect.py
-    python 3.5_cluster_inspect.py --n-neighbors 17 --min-dist 0.04146 \\
+    python 3.4.1_cluster_inspect.py
+    python 3.4.1_cluster_inspect.py --n-neighbors 17 --min-dist 0.04146 \\
         --min-cluster-size 11 --min-samples 5
 
 Output:
