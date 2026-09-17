@@ -417,7 +417,7 @@ def main():
     parser.add_argument("--refine-seeds", type=int, nargs="+", default=DEFAULT_REFINE_SEEDS)
 
     # validity constraints (soft penalty during search, hard filter during refine ranking)
-    parser.add_argument("--min-clusters", type=int, default=2)
+    parser.add_argument("--min-clusters", type=int, default=2) 
     parser.add_argument("--max-clusters", type=str, default="none",
                          help="Max clusters to count as valid, or 'none' for no upper limit")
     parser.add_argument("--max-noise-fraction", type=str, default="0.3",

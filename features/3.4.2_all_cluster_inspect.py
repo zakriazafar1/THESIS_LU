@@ -57,11 +57,11 @@ DEFAULT_SCRIPT = Path(
 )
 DEFAULT_INPUT = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
-    r"\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled\arousal_feature_matrix_scaled.csv"
+    r"\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled\arousal_feature_matrix_scaled_clean.csv"
 )
 DEFAULT_OUTPUT_ROOT = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
-    r"\THESIS_OUTPUTS\PROJECT 2\4. clustering\cluster_inspect_all"
+    r"\THESIS_OUTPUTS\PROJECT 2\4. clustering"
 )
 
 PARAM_COLUMNS = ["n_neighbors", "min_dist", "n_components", "min_cluster_size", "min_samples"]
@@ -75,22 +75,6 @@ def detect_delimiter(path: Path, sample_lines: int = 5) -> str:
         return dialect.delimiter
     except csv_module.Error:
         return ","
-
-import pandas as pd
-
-path = r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled\arousal_feature_matrix_scaled.csv"
-df = pd.read_csv(path, sep=";", decimal=".")
-
-id_cols = ["subject_id", "group", "night_id", "stage_rk", "event_idx",
-           "start_sec", "end_sec", "duration_sec", "sec_prev_event"]
-feature_cols = [c for c in df.columns if c not in id_cols]
-
-nan_mask = df[feature_cols].isna().any(axis=1)
-print(f"Dropping {nan_mask.sum()} of {len(df)} events with NaN feature(s)")
-print(df.loc[nan_mask, ["subject_id", "night_id", "event_idx", "start_sec", "end_sec"]])
-
-df = df.loc[~nan_mask].reset_index(drop=True)
-df.to_csv(path, sep=";", index=False)
 
 def combo_dir_name(row_dict, rank):
     return (

@@ -18,7 +18,12 @@ This does three things:
        - a grid of boxplots, one per diagnostic feature, showing that
          feature's distribution PER CLUSTER (not colored scatter this time -
          boxplots make it much easier to see whether a cluster's feature
-         values are actually shifted vs. just visually separated)
+         values are actually shifted vs. just visually separated). By
+         default each panel uses a FIXED y-axis, computed once from the
+         full feature matrix (not from this run's clusters), so boxplots
+         from different parameter combinations line up on the same scale
+         and are directly comparable. Use --boxplot-scale auto for the old
+         per-run auto-scaling behaviour.
        - a summary table: size, % of data, mean noise/duration/features per
          cluster, and the sleep-stage (stage_rk) composition per cluster
 
@@ -26,6 +31,7 @@ Usage:
     python 3.4.1_cluster_inspect.py
     python 3.4.1_cluster_inspect.py --n-neighbors 17 --min-dist 0.04146 \\
         --min-cluster-size 11 --min-samples 5
+    python 3.4.1_cluster_inspect.py --boxplot-scale auto
 
 Output:
     embedding_with_clusters.csv - id columns + UMAP_1/2 + cluster label
@@ -61,7 +67,7 @@ except ImportError:
 
 DEFAULT_INPUT = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
-    r"\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled\arousal_feature_matrix_scaled.csv"
+    r"\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled\arousal_feature_matrix_scaled_clean.csv"
 )
 DEFAULT_OUTPUT_DIR = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
@@ -136,6 +142,34 @@ def load_features(path: Path, id_columns):
     return df, feature_cols
 
 
+def compute_fixed_ylims(df, features, whisker_iqr=1.5, pad_frac=0.05):
+    """Per-feature y-axis bounds computed once from the FULL feature matrix
+    (i.e. independent of any particular clustering run), so that boxplots
+    from different UMAP/HDBSCAN parameter combinations end up on the same
+    scale and can be compared side by side.
+
+    Uses the same Q1-1.5*IQR / Q3+1.5*IQR rule matplotlib's boxplot uses for
+    its whiskers, clipped to the actual data range, plus a small padding
+    fraction so boxes don't touch the panel edges.
+    """
+    ylims = {}
+    for feat in features:
+        if feat not in df.columns:
+            continue
+        col = df[feat].dropna()
+        if col.empty:
+            continue
+        q1, q3 = col.quantile([0.25, 0.75])
+        iqr = q3 - q1
+        lo = max(q1 - whisker_iqr * iqr, col.min())
+        hi = min(q3 + whisker_iqr * iqr, col.max())
+        if hi <= lo:  # degenerate (near-constant) feature - fall back to actual range
+            lo, hi = col.min(), col.max()
+        pad = (hi - lo) * pad_frac or 1e-6
+        ylims[feat] = (lo - pad, hi + pad)
+    return ylims
+
+
 def make_cluster_scatter(embedding, labels, out_path):
     import matplotlib
     matplotlib.use("Agg")
@@ -162,7 +196,7 @@ def make_cluster_scatter(embedding, labels, out_path):
     plt.close(fig)
 
 
-def make_cluster_boxplots(df, labels, features, out_path):
+def make_cluster_boxplots(df, labels, features, out_path, fixed_ylims=None):
     import math
     import matplotlib
     matplotlib.use("Agg")
@@ -194,6 +228,8 @@ def make_cluster_boxplots(df, labels, features, out_path):
         ax.set_title(feature, fontsize=10)
         ax.set_xlabel("cluster")
         ax.tick_params(axis="x", rotation=45)
+        if fixed_ylims and feature in fixed_ylims:
+            ax.set_ylim(*fixed_ylims[feature])
 
     for ax in axes[len(present):]:
         ax.axis("off")
@@ -237,6 +273,13 @@ def main():
     parser.add_argument("--id-columns", type=str, nargs="*", default=DEFAULT_ID_COLUMNS)
     parser.add_argument("--diagnostic-features", type=str, nargs="*", default=DIAGNOSTIC_FEATURES)
     parser.add_argument("--metric", type=str, default="euclidean")
+    parser.add_argument(
+        "--boxplot-scale", choices=["fixed", "auto"], default="fixed",
+        help="'fixed' (default): every combo's boxplots use the same y-axis per "
+             "feature, computed once from the full feature matrix, so combos are "
+             "directly comparable. 'auto': old behaviour, each panel auto-scales "
+             "to that run's own clusters.",
+    )
 
     # UMAP params - defaults match the n_components=2 Bayes-opt winner
     parser.add_argument("--n-neighbors", type=int, default=17)
@@ -253,6 +296,10 @@ def main():
 
     df, feature_cols = load_features(args.input, args.id_columns)
     X = df[feature_cols].to_numpy()
+
+    fixed_ylims = None
+    if args.boxplot_scale == "fixed":
+        fixed_ylims = compute_fixed_ylims(df, args.diagnostic_features)
 
     print(f"\nFitting UMAP: n_neighbors={args.n_neighbors}, min_dist={args.min_dist}, "
           f"n_components={args.n_components}, random_state={args.random_state}")
@@ -295,8 +342,8 @@ def main():
 
     # --- Boxplots per feature, grouped by cluster ---
     boxplot_path = args.output_dir / "cluster_boxplots.png"
-    make_cluster_boxplots(df, labels, args.diagnostic_features, boxplot_path)
-    print(f"Saved {boxplot_path}")
+    make_cluster_boxplots(df, labels, args.diagnostic_features, boxplot_path, fixed_ylims=fixed_ylims)
+    print(f"Saved {boxplot_path} (boxplot-scale={args.boxplot_scale})")
 
     # --- Summary table ---
     summary = make_cluster_summary(df, labels, args.diagnostic_features)
