@@ -2,31 +2,25 @@
 =============================================================================
 2.1_transform_features.py
 
-Preprocessing van de arousal-featurematrix (output van 1_feature_matrix.py),
-vóór clustering.
+Transformatie (log) van de arousal-featurematrix (output van 1_feature_matrix.py). 
 
-Stappenplan (outlier-detectie tijdelijk verwijderd -- volgt na scaling):
+Stappenplan:
   1. Visualiseer de verdeling van elke feature (histogram + skewness/kurtosis),
      en check op missings/inf.
   2. Transform skewed features: voor ELKE feature wordt automatisch gekozen
      tussen geen transform / signed-log1p / signed-sqrt, op basis van welke
      variant de laagste |skew| oplevert (signed = sign(x)*f(|x|), zodat het
      ook correct zou werken mocht een feature negatieve waarden bevatten).
-     Zet features in FORCE_UNTOUCHED_COLS als je ze expliciet nooit wil
+     -- Zet features in FORCE_UNTOUCHED_COLS als je ze expliciet nooit wil
      transformeren. Skew wordt na transformatie opnieuw berekend en
      weggeschreven, samen met welke variant per feature gekozen is
      (transform_choices.csv).
-  3. Standaardiseren: StandardScaler (z-score) als default; voor kolommen die
-     na stap 2 nog steeds |skew| > ROBUST_SKEW_THRESHOLD hebben wordt
-     RobustScaler gebruikt (mediaan/IQR i.p.v. mean/std), minder gevoelig voor
-     de resterende extremen. Draait direct op de getransformeerde matrix
-     (nog geen outlier-cleaning).
+
+  Scaling gebeurt in 2.2_scale_features.py, dat de hier weggeschreven
+  arousal_feature_matrix_transformed.csv als input gebruikt.
 
 Gebruik:
   python 2.1_transform_features.py
-      -> stap 1, 2, 3. Schrijft de volledig getransformeerde + geschaalde
-         featurematrix weg, klaar om later (na scaling) alsnog op outliers
-         te inspecteren.
   python 2.1_transform_features.py --inspect-distributions   # print tabellen ook naar console
 =============================================================================
 """
@@ -51,32 +45,23 @@ OUTPUT_DIR = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\transformed"
 )
 
-# Kolommen die GEEN feature zijn (identifiers / metadata), dus uitgesloten van
-# distributie-plots, transformatie en standaardisatie. stage_rk is metadata
-# voor interpretatie/descriptive_note, geen clustering-input. duration_sec is
-# WEL een feature (zie stap 2).
+# Metadata kolommen, dus uitgesloten van distributie-plots en transformatie. 
+# stage_rk is metadata voor interpretatie/descriptive_note, geen clustering-input. 
+# duration_sec is WEL een feature. 
+
 METADATA_COLS = [
     "subject_id", "group", "night_id", "event_idx",
     "start_sec", "end_sec", "sec_prev_event",
-    "stage_rk",
+    "stage_rk"
 ]
 
 N_COLS_GRID = 5  # aantal subplots per rij in de histogram-grid
 
-# Stap 2: voor ELKE feature wordt automatisch gekozen tussen 3 varianten --
-# geen transform, signed-log1p, signed-sqrt -- op basis van welke de laagste
-# |skew| oplevert (signed = sign(x)*f(|x|), zodat het ook correct zou werken
-# mocht een feature negatieve waarden bevatten). Zet hier features in die je
-# expliciet NOOIT wil transformeren (bv. om domein-redenen), ook al zou een
-# transform de skew technisch verlagen.
+# Zet hier features in die je expliciet NOOIT wil transformeren (bv. om domein-redenen) 
 FORCE_UNTOUCHED_COLS: list[str] = []
 
-# Stap 3: kolommen met |skew| boven deze drempel (ná stap 2) krijgen RobustScaler i.p.v. StandardScaler.
-ROBUST_SKEW_THRESHOLD = 2.0
-
-
 # =============================================================================
-# SECTIE 1 — INLADEN
+# STAP 1 — INLADEN
 # =============================================================================
 
 def load_feature_matrix(path: Path) -> pd.DataFrame:
@@ -126,7 +111,7 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
 
 
 # =============================================================================
-# SECTIE 2 — MISSINGS / INF CHECK
+# STAP 2 - MISSINGS / INF CHECK
 # =============================================================================
 
 def summarize_missingness(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
@@ -149,7 +134,7 @@ def summarize_missingness(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataF
 
 
 # =============================================================================
-# SECTIE 3 — DISTRIBUTIES VISUALISEREN (STAP 1)
+# STAP 3 — DISTRIBUTIES VISUALISEREN (voor/na transformatie)
 # =============================================================================
 
 def compute_distribution_stats(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
@@ -204,7 +189,7 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
 
 
 # =============================================================================
-# SECTIE 4 — TRANSFORMATIE (STAP 2)
+# STAP 4 — TRANSFORMATIE 
 # =============================================================================
 
 def signed_log1p(x: pd.Series) -> pd.Series:
@@ -268,41 +253,6 @@ def apply_best_transform_group(df: pd.DataFrame, cols: list[str]) -> tuple[pd.Da
 
 
 # =============================================================================
-# SECTIE 5 — STANDAARDISEREN (STAP 3)
-# =============================================================================
-
-def scale_features(df: pd.DataFrame, feature_cols: list[str],
-                    robust_threshold: float = ROBUST_SKEW_THRESHOLD) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    StandardScaler (z-score) als default; RobustScaler (mediaan/IQR) voor
-    kolommen die na stap 2 nog steeds |skew| > robust_threshold hebben. Geeft
-    de geschaalde df terug plus een overzicht van welke scaler per kolom is
-    gebruikt.
-    """
-    out = df.copy()
-    rows = []
-    for col in feature_cols:
-        vals = df[col].replace([np.inf, -np.inf], np.nan)
-        finite = vals.dropna()
-        s = skew(finite) if len(finite) >= 3 else np.nan
-
-        if pd.notna(s) and abs(s) > robust_threshold:
-            median = finite.median()
-            iqr = finite.quantile(0.75) - finite.quantile(0.25)
-            out[col] = (vals - median) / iqr if iqr != 0 else vals - median
-            method = "RobustScaler (median/IQR)"
-        else:
-            mean = finite.mean()
-            std = finite.std()
-            out[col] = (vals - mean) / std if std != 0 else vals - mean
-            method = "StandardScaler (mean/std)"
-
-        rows.append({"feature": col, "skew_before_scaling": round(s, 3) if pd.notna(s) else np.nan,
-                      "scaler_used": method})
-    return out, pd.DataFrame(rows)
-
-
-# =============================================================================
 # HOOFDLOOP
 # =============================================================================
 
@@ -357,18 +307,6 @@ def run_steps_1_and_2(df: pd.DataFrame, feature_cols: list[str], verbose: bool) 
     return df_t
 
 
-def run_step_3(df_t: pd.DataFrame, feature_cols: list[str]) -> None:
-    # --- Stap 3 ---
-    df_scaled, scaler_summary = scale_features(df_t, feature_cols)
-    df_scaled.to_csv(OUTPUT_DIR / "arousal_feature_matrix_scaled.csv", index=False)
-    scaler_summary.to_csv(OUTPUT_DIR / "scaler_summary.csv", index=False)
-    n_robust = (scaler_summary["scaler_used"].str.startswith("Robust")).sum()
-    print(f"\nStap 3: {n_robust} van de {len(feature_cols)} features geschaald met RobustScaler "
-          f"(rest StandardScaler).")
-    print("  - arousal_feature_matrix_scaled.csv  <- klaar voor clustering (outlier-check volgt hierna)")
-    print("  - scaler_summary.csv")
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT,
@@ -381,8 +319,7 @@ def main():
     feature_cols = get_feature_columns(df)
     print(f"\n{len(feature_cols)} features (metadata-kolommen uitgesloten): {feature_cols}")
 
-    df_t = run_steps_1_and_2(df, feature_cols, verbose=args.inspect_distributions)
-    run_step_3(df_t, feature_cols)
+    run_steps_1_and_2(df, feature_cols, verbose=args.inspect_distributions)
 
 
 if __name__ == "__main__":

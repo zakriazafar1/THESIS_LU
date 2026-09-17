@@ -115,7 +115,6 @@ except ImportError:
         "    pip install scikit-learn --break-system-packages"
     )
 
-# Same input as 3.2_umap.py / 3.3_umap_hdbscan_search.py - edit if it moves.
 DEFAULT_INPUT = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
     r"\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled\arousal_feature_matrix_scaled.csv"
@@ -133,8 +132,7 @@ DEFAULT_ID_COLUMNS = [
 DEFAULT_REFINE_SEEDS = [42, 7, 123, 567, 684, 950, 328, 0, 988]
 
 
-# ---- shared loading helpers (same as 3.2/3.3, duplicated to keep this a
-# standalone script) -------------------------------------------------------
+# ---- shared loading helpers -------------------------------------------------------
 
 def detect_delimiter(path: Path, sample_lines: int = 5) -> str:
     import csv as csv_module
@@ -229,7 +227,7 @@ def fit_and_score(X, n_neighbors, min_dist, n_components, min_cluster_size, min_
     return n_clusters, noise_fraction, rel_val, trust
 
 
-# ---- phase 1: Bayesian search ---------------------------------------------
+# ---- Step 1: Bayesian search ---------------------------------------------
 
 def make_objective(X, args):
     def objective(trial):
@@ -285,7 +283,7 @@ def make_objective(X, args):
     return objective
 
 
-# ---- convergence tracking ---------------------------------------------
+# ---- Step 1.1: convergence tracking ---------------------------------------------
 
 def save_convergence(trials_df, output_dir, plateau_window=None):
     """Track the best score seen so far as trials progress, save as CSV +
@@ -338,7 +336,7 @@ def save_convergence(trials_df, output_dir, plateau_window=None):
     return conv
 
 
-# ---- phase 2: multi-seed refinement of the top candidates ----------------
+# ---- Step 2: multi-seed refinement of the top candidates ----------------
 
 def refine_top_configs(X, top_configs, seeds, metric, trustworthiness_n_neighbors):
     results = []
@@ -392,20 +390,20 @@ def main():
                          help="Neighborhood size used by the trustworthiness metric (independent of UMAP's own n_neighbors)")
 
     # search space bounds (ranges, not fixed lists - Optuna samples within them).
-    parser.add_argument("--n-neighbors-min", type=int, default=15)
-    parser.add_argument("--n-neighbors-max", type=str, default="300")
+    parser.add_argument("--n-neighbors-min", type=int, default=20)
+    parser.add_argument("--n-neighbors-max", type=str, default="400")
     parser.add_argument("--min-dist-min", type=float, default=0.0)
     parser.add_argument("--min-dist-max", type=str, default="0.2")
-    parser.add_argument("--n-components-min", type=int, default=15)
-    parser.add_argument("--n-components-max", type=str, default="15")
+    parser.add_argument("--n-components-min", type=int, default=2)
+    parser.add_argument("--n-components-max", type=str, default="3")
     parser.add_argument("--min-cluster-size-min", type=int, default=10)
-    parser.add_argument("--min-cluster-size-max", type=str, default="100")
-    parser.add_argument("--min-samples-min", type=int, default=3)
-    parser.add_argument("--min-samples-max", type=str, default="none",
+    parser.add_argument("--min-cluster-size-max", type=str, default="250")
+    parser.add_argument("--min-samples-min", type=int, default=1)
+    parser.add_argument("--min-samples-max", type=str, default="100",
                          help="'none' (default) caps at min_cluster_size per-trial; or a fixed number")
 
     # search phase
-    parser.add_argument("--n-trials", type=int, default=100)
+    parser.add_argument("--n-trials", type=int, default=60)
     parser.add_argument("--search-seeds", type=int, nargs="+", default=[42],
                          help="One or more UMAP seeds, averaged over each trial for a more stable search signal")
     parser.add_argument("--study-seed", type=int, default=42,

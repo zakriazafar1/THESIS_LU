@@ -3,16 +3,12 @@
 2.2_scale_features.py
 
 Standaardisatie (RobustScaler) van de getransformeerde arousal-featurematrix
-(output van 2_transform_features.py), als laatste stap vóór clustering.
+(output van 2_transform_features.py).
 
 Waarom RobustScaler i.p.v. StandardScaler:
   RobustScaler schaalt op basis van mediaan en IQR (25e-75e percentiel) i.p.v.
   mean/std. Ook na de log1p/sqrt-transformatie in stap 2 kunnen er nog wat
-  resterende extremen in de staarten zitten (er is in dit stappenplan geen
-  aparte outlier-winsorize/remove-stap toegepast) -- RobustScaler is daar
-  minder gevoelig voor dan StandardScaler, en dat is hier voor ALLE features
-  consistent toegepast (dus niet per-feature gekozen o.b.v. skew, zoals in de
-  eerdere versie van stap 5 in 2_transform_features.py).
+  resterende extremen in de staarten zitten.
 
 Stappenplan:
   1. Featurematrix inladen (arousal_feature_matrix_transformed.csv).
@@ -20,13 +16,11 @@ Stappenplan:
   3. RobustScaler fitten en toepassen op alle features (median=0, IQR=1 na
      scaling). Per feature wordt de gebruikte mediaan en IQR weggeschreven
      (scaler_summary.csv), zodat de scaling reproduceerbaar/na te rekenen is.
-  4. Distributie NA scaling visualiseren + skew/kurtosis wegschrijven.
-  5. Geschaalde featurematrix wegschrijven -- klaar voor clustering.
+  4. Distributie nascaling visualiseren + skew/kurtosis wegschrijven.
+  5. Geschaalde featurematrix wegschrijven. 
 
 Gebruik:
   python 2.2_scale_features.py
-      -> leest arousal_feature_matrix_transformed.csv uit INPUT_DIR, schrijft
-         alle output naar OUTPUT_DIR (zie configuratie hieronder).
   python 2.2_scale_features.py --input pad/naar/andere_transformed.csv
 =============================================================================
 """
@@ -56,8 +50,7 @@ OUTPUT_DIR = Path(
 
 DEFAULT_INPUT = INPUT_DIR / "arousal_feature_matrix_transformed.csv"
 
-# Zelfde metadata-kolommen als in 2_transform_features.py -- deze worden
-# uitgesloten van scaling, en gewoon meegekopieerd naar de output.
+# Zelfde metadata-kolommen als in 2_transform_features.py -- deze worden uitgesloten van scaling. 
 METADATA_COLS = [
     "subject_id", "group", "night_id", "event_idx",
     "start_sec", "end_sec", "sec_prev_event",
@@ -66,9 +59,8 @@ METADATA_COLS = [
 
 N_COLS_GRID = 5  # aantal subplots per rij in de histogram-grid
 
-
 # =============================================================================
-# SECTIE 1 — INLADEN
+# STAP 1 - INLADEN
 # =============================================================================
 
 def load_transformed_matrix(path: Path) -> pd.DataFrame:
@@ -121,7 +113,7 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
 
 
 # =============================================================================
-# SECTIE 2 — DISTRIBUTIE-STATS EN PLOTS (voor en na, zelfde functies)
+# STAP 2 - DISTRIBUTIE-STATS EN PLOTS (voor en na, zelfde functies)
 # =============================================================================
 
 def compute_distribution_stats(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
@@ -176,7 +168,7 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
 
 
 # =============================================================================
-# SECTIE 3 — ROBUSTSCALER (STAP 3)
+# STAP 3 - ROBUSTSCALER 
 # =============================================================================
 
 def scale_with_robust_scaler(df: pd.DataFrame, feature_cols: list[str]) -> tuple[pd.DataFrame, pd.DataFrame, RobustScaler]:
