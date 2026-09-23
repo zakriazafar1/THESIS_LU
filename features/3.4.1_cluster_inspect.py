@@ -13,8 +13,16 @@ This does three things:
     2. Runs HDBSCAN on that embedding with your chosen min_cluster_size /
        min_samples.
     3. Produces:
-       - the embedding + cluster labels as a CSV
-       - a scatter plot colored by cluster label (noise in gray)
+       - the embedding + cluster labels as a CSV (this is what tells you
+         which event falls under which cluster: id columns + UMAP
+         coordinates + cluster label, one row per event)
+       - a scatter plot colored by cluster label (noise in gray):
+           * n_components == 2 -> a single 2D scatter (cluster_scatter.png)
+           * n_components == 3 -> a 3D scatter, rendered from 4 different
+             viewing angles in one figure so the depth structure is visible
+             in a static image (cluster_scatter_3d.png)
+           * n_components not in {2, 3} -> skipped (can't honestly show 4+
+             dimensions in one plot)
        - a grid of boxplots, one per diagnostic feature, showing that
          feature's distribution PER CLUSTER (not colored scatter this time -
          boxplots make it much easier to see whether a cluster's feature
@@ -34,8 +42,11 @@ Usage:
     python 3.4.1_cluster_inspect.py --boxplot-scale auto
 
 Output:
-    embedding_with_clusters.csv - id columns + UMAP_1/2 + cluster label
-    cluster_scatter.png         - 2D scatter colored by cluster
+    embedding_with_clusters.csv - id columns + UMAP_1/2(/3...) + cluster label,
+                                   ONE ROW PER EVENT - this is how you look up
+                                   which cluster any given event fell into
+    cluster_scatter.png         - 2D scatter colored by cluster (n_components == 2)
+    cluster_scatter_3d.png      - 3D scatter, 4 viewing angles (n_components == 3)
     cluster_boxplots.png        - one boxplot panel per diagnostic feature,
                                    grouped by cluster
     cluster_summary.csv         - per-cluster size, %, mean of each
@@ -196,6 +207,50 @@ def make_cluster_scatter(embedding, labels, out_path):
     plt.close(fig)
 
 
+def make_cluster_scatter_3d(embedding, labels, out_path,
+                             view_angles=((20, -60), (20, 30), (20, 120), (60, -60))):
+    """3D scatter of the first 3 UMAP components, colored by cluster.
+    Renders the SAME plot from several (elev, azim) angles side by side,
+    since a single static 3D view is easy to misread depth-wise.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (registers the 3d projection)
+
+    unique_labels = sorted(set(labels))
+    cmap = plt.get_cmap("tab20")
+
+    n_views = len(view_angles)
+    fig = plt.figure(figsize=(6.5 * n_views, 6))
+
+    for i, (elev, azim) in enumerate(view_angles):
+        ax = fig.add_subplot(1, n_views, i + 1, projection="3d")
+        for lab in unique_labels:
+            mask = labels == lab
+            if lab == -1:
+                ax.scatter(embedding[mask, 0], embedding[mask, 1], embedding[mask, 2],
+                           s=6, alpha=0.25, color="lightgray",
+                           label=f"noise (n={mask.sum()})" if i == 0 else None)
+            else:
+                ax.scatter(embedding[mask, 0], embedding[mask, 1], embedding[mask, 2],
+                           s=8, alpha=0.6, color=cmap(lab % 20),
+                           label=f"cluster {lab} (n={mask.sum()})" if i == 0 else None)
+        ax.set_xlabel("UMAP_1")
+        ax.set_ylabel("UMAP_2")
+        ax.set_zlabel("UMAP_3")
+        ax.view_init(elev=elev, azim=azim)
+        ax.set_title(f"elev={elev}, azim={azim}", fontsize=9)
+
+    fig.suptitle("UMAP embedding (3D) colored by HDBSCAN cluster", y=1.02)
+    handles, plot_labels = fig.axes[0].get_legend_handles_labels()
+    fig.legend(handles, plot_labels, fontsize=8, loc="upper center",
+               ncol=min(len(plot_labels), 8), bbox_to_anchor=(0.5, 1.08))
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
 def make_cluster_boxplots(df, labels, features, out_path, fixed_ylims=None):
     import math
     import matplotlib
@@ -322,7 +377,7 @@ def main():
         rel_val = float("nan")
     print(f"Found {n_clusters} clusters, {noise_fraction:.1%} noise, relative_validity={rel_val:.3f}")
 
-    # --- Save embedding + labels ---
+    # --- Save embedding + labels (this is the per-event cluster lookup table) ---
     present_id_cols = [c for c in args.id_columns if c in df.columns]
     emb_df = df[present_id_cols].copy()
     for i in range(args.n_components):
@@ -332,13 +387,17 @@ def main():
     emb_df.to_csv(emb_path, index=False)
     print(f"Saved {emb_path}")
 
-    # --- Scatter colored by cluster (only meaningful/plottable for 2D) ---
+    # --- Scatter colored by cluster ---
     if args.n_components == 2:
         scatter_path = args.output_dir / "cluster_scatter.png"
         make_cluster_scatter(embedding, labels, scatter_path)
         print(f"Saved {scatter_path}")
+    elif args.n_components == 3:
+        scatter3d_path = args.output_dir / "cluster_scatter_3d.png"
+        make_cluster_scatter_3d(embedding, labels, scatter3d_path)
+        print(f"Saved {scatter3d_path}")
     else:
-        print(f"Skipping cluster scatter plot: n_components={args.n_components} != 2")
+        print(f"Skipping cluster scatter plot: n_components={args.n_components} not in {{2, 3}}")
 
     # --- Boxplots per feature, grouped by cluster ---
     boxplot_path = args.output_dir / "cluster_boxplots.png"

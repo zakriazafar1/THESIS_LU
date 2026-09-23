@@ -26,24 +26,29 @@ Two phases:
                   you can see which of the search's favorites are actually
                   stable rather than a lucky roll of one seed.
 
-TRUSTWORTHINESS (new): relative_validity is a density-based metric that
+TRUSTWORTHINESS: relative_validity is a density-based metric that
 structurally tends to score HIGHER in lower embedding dimensions - so it is
 NOT a fair way to decide between e.g. n_components=2 vs 3. Alongside it,
-this script now also computes sklearn's trustworthiness score, which
-compares the embedding's neighborhood structure directly against the
-neighborhood structure of your original 27 features. Trustworthiness tends
-to score BETTER in higher dimensions (more of the original structure is
-preserved), so the two metrics pull in opposite directions on
-dimensionality - looking at both together, rather than either alone, is
-what lets you make a defensible n_components choice. Trustworthiness is
-reported everywhere relative_validity is, but it does NOT change what
-Optuna optimizes for (still relative_validity) - it's there for you to
-weigh manually per n_components, exactly as advised.
+this script also computes sklearn's trustworthiness score, which compares
+the embedding's neighborhood structure directly against the neighborhood
+structure of your original features. Trustworthiness tends to score BETTER
+in higher dimensions (more of the original structure is preserved), so the
+two metrics pull in opposite directions on dimensionality - looking at both
+together, rather than either alone, is what lets you make a defensible
+n_components choice. Trustworthiness is reported everywhere relative_validity
+is, but it does NOT change what Optuna optimizes for (still relative_validity)
+- it's there for you to weigh manually per n_components.
 
 CONVERGENCE TRACKING: after the search phase, the best score seen so far is
 plotted against trial number. Once that curve flattens out, more trials are
 mostly wasted compute - this replaces guessing a --n-trials number up front
 with actually looking at whether the search has plateaued.
+
+RUN CONFIG (new): the fully-resolved parameter choices for this run
+(everything used to actually run the search - including any 'none' values
+resolved to real numbers) are saved as bayesopt_run_config.json, so you have
+an exact, timestamped record of what was searched - useful for your methods
+section and for reproducing a run later.
 
 This does NOT replace 3.3.1_umap_hdbscan_manual.py - a fixed grid is still
 useful for exhaustively checking a small, deliberately chosen set of
@@ -57,6 +62,8 @@ Usage:
     python 3.3.2_umap_hdbscan_bayes.py --n-neighbors-max none  # auto ceiling based on n_events
 
 Output:
+    bayesopt_run_config.json    - the fully-resolved parameter choices used
+                                   for this run, with a timestamp
     bayesopt_trials.csv         - every trial from the search phase (params,
                                    score, n_clusters, noise_fraction,
                                    relative_validity, trustworthiness)
@@ -75,8 +82,10 @@ Output:
 
 import argparse
 import itertools
+import json
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -129,7 +138,7 @@ DEFAULT_ID_COLUMNS = [
     "start_sec", "end_sec", "duration_sec", "sec_prev_event",
 ]
 
-DEFAULT_REFINE_SEEDS = [42, 7, 123, 567, 684, 950, 328, 0, 988]
+DEFAULT_REFINE_SEEDS = [42, 7, 123, 567, 684, 389]
 
 
 # ---- shared loading helpers -------------------------------------------------------
@@ -372,12 +381,55 @@ def aggregate_results(results_df, min_clusters, max_clusters, max_noise_fraction
         mean_noise_fraction=("noise_fraction", "mean"),
         frac_seeds_valid=("valid", "mean"),
         n_seeds=("valid", "count"),
-    ).reset_index()
+    ).reset_index()     
 
     agg = agg.sort_values(
         ["frac_seeds_valid", "mean_relative_validity"], ascending=[False, False]
     ).reset_index(drop=True)
     return agg
+
+
+def save_run_config(args, output_dir, n_events, n_features):
+    """Save the fully-resolved parameter choices for this run (after any
+    'none' values were resolved to real numbers) as JSON, with a timestamp -
+    an exact, citable record of what was searched, for the methods section
+    and for reproducing a run later.
+    """
+    config = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "input": str(args.input),
+        "n_events": n_events,
+        "n_features_in": n_features,
+        "metric": args.metric,
+        "trustworthiness_n_neighbors": args.trustworthiness_n_neighbors,
+        "search_space": {
+            "n_neighbors": {"min": args.n_neighbors_min, "max": args.n_neighbors_max},
+            "min_dist": {"min": args.min_dist_min, "max": args.min_dist_max},
+            "n_components": {"min": args.n_components_min, "max": args.n_components_max},
+            "min_cluster_size": {"min": args.min_cluster_size_min, "max": args.min_cluster_size_max},
+            "min_samples": {"min": args.min_samples_min, "max": args.min_samples_max},
+        },
+        "search_phase": {
+            "n_trials": args.n_trials,
+            "search_seeds": args.search_seeds,
+            "study_seed": args.study_seed,
+            "plateau_window": args.plateau_window,
+        },
+        "refine_phase": {
+            "top_k_refine": args.top_k_refine,
+            "refine_seeds": args.refine_seeds,
+        },
+        "validity_constraints": {
+            "min_clusters": args.min_clusters,
+            "max_clusters": args.max_clusters,
+            "max_noise_fraction": args.max_noise_fraction,
+        },
+    }
+    config_path = output_dir / "bayesopt_run_config.json"
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+    print(f"Saved {config_path}")
+    return config_path
 
 
 def main():
@@ -390,23 +442,23 @@ def main():
                          help="Neighborhood size used by the trustworthiness metric (independent of UMAP's own n_neighbors)")
 
     # search space bounds (ranges, not fixed lists - Optuna samples within them).
-    parser.add_argument("--n-neighbors-min", type=int, default=20)
-    parser.add_argument("--n-neighbors-max", type=str, default="400")
+    parser.add_argument("--n-neighbors-min", type=int, default=5)
+    parser.add_argument("--n-neighbors-max", type=str, default="50")
     parser.add_argument("--min-dist-min", type=float, default=0.0)
     parser.add_argument("--min-dist-max", type=str, default="0.2")
     parser.add_argument("--n-components-min", type=int, default=2)
     parser.add_argument("--n-components-max", type=str, default="3")
     parser.add_argument("--min-cluster-size-min", type=int, default=10)
-    parser.add_argument("--min-cluster-size-max", type=str, default="250")
+    parser.add_argument("--min-cluster-size-max", type=str, default="100")
     parser.add_argument("--min-samples-min", type=int, default=1)
     parser.add_argument("--min-samples-max", type=str, default="100",
                          help="'none' (default) caps at min_cluster_size per-trial; or a fixed number")
 
     # search phase
-    parser.add_argument("--n-trials", type=int, default=60)
-    parser.add_argument("--search-seeds", type=int, nargs="+", default=[42],
+    parser.add_argument("--n-trials", type=int, default=20)
+    parser.add_argument("--search-seeds", type=int, nargs="+", default=[389],
                          help="One or more UMAP seeds, averaged over each trial for a more stable search signal")
-    parser.add_argument("--study-seed", type=int, default=42,
+    parser.add_argument("--study-seed", type=int, default=389,
                          help="Seed for Optuna's own sampler (reproducibility of which trials get proposed)")
     parser.add_argument("--plateau-window", type=int, default=None,
                          help="How many trailing trials to check for improvement in the convergence "
@@ -420,7 +472,7 @@ def main():
     parser.add_argument("--min-clusters", type=int, default=2) 
     parser.add_argument("--max-clusters", type=str, default="none",
                          help="Max clusters to count as valid, or 'none' for no upper limit")
-    parser.add_argument("--max-noise-fraction", type=str, default="0.3",
+    parser.add_argument("--max-noise-fraction", type=str, default="0.2",
                          help="Max noise fraction to count as valid, or 'none' for no upper limit")
 
     args = parser.parse_args()
@@ -457,6 +509,8 @@ def main():
         args.min_cluster_size_max, max(args.min_cluster_size_min + 1, n_events // 2),
         "--min-cluster-size-max (capped at n_events // 2 - larger clusters than half the data are degenerate)",
     )
+
+    save_run_config(args, args.output_dir, n_events, n_features)
 
     # --- Phase 1: search ---
     print(f"\nStarting Bayesian search: {args.n_trials} trials, search_seeds={args.search_seeds}\n")
