@@ -126,7 +126,7 @@ except ImportError:
 
 DEFAULT_INPUT = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
-    r"\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled\arousal_feature_matrix_scaled.csv"
+    r"\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled\arousal_feature_matrix_scaled_MAIN.csv"
 )
 DEFAULT_OUTPUT_DIR = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
@@ -442,15 +442,15 @@ def main():
                          help="Neighborhood size used by the trustworthiness metric (independent of UMAP's own n_neighbors)")
 
     # search space bounds (ranges, not fixed lists - Optuna samples within them).
-    parser.add_argument("--n-neighbors-min", type=int, default=5)
-    parser.add_argument("--n-neighbors-max", type=str, default="50")
+    parser.add_argument("--n-neighbors-min", type=int, default=30)
+    parser.add_argument("--n-neighbors-max", type=str, default="300")
     parser.add_argument("--min-dist-min", type=float, default=0.0)
     parser.add_argument("--min-dist-max", type=str, default="0.2")
-    parser.add_argument("--n-components-min", type=int, default=2)
+    parser.add_argument("--n-components-min", type=int, default=3)
     parser.add_argument("--n-components-max", type=str, default="3")
     parser.add_argument("--min-cluster-size-min", type=int, default=10)
     parser.add_argument("--min-cluster-size-max", type=str, default="100")
-    parser.add_argument("--min-samples-min", type=int, default=1)
+    parser.add_argument("--min-samples-min", type=int, default=3)
     parser.add_argument("--min-samples-max", type=str, default="100",
                          help="'none' (default) caps at min_cluster_size per-trial; or a fixed number")
 

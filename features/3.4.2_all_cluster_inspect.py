@@ -57,7 +57,7 @@ DEFAULT_SCRIPT = Path(
 )
 DEFAULT_INPUT = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
-    r"\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled\arousal_feature_matrix_scaled_clean.csv"
+    r"\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled\arousal_feature_matrix_scaled_MAIN.csv"
 )
 DEFAULT_OUTPUT_ROOT = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
