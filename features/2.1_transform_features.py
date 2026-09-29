@@ -20,6 +20,9 @@ Stappenplan:
      als een log-feature een waarde <= 0 bevat.
      Skew voor/na wordt per feature weggeschreven (transform_choices.csv).
 
+  0. Vooraf: events uit EXCLUDE_NIGHTS worden verwijderd (night-level
+     baseline/opname-artefact, zie configuratie). Log -> excluded_nights.csv.
+
   Scaling gebeurt in 2.2_scale_features.py, dat de hier weggeschreven
   arousal_feature_matrix_transformed.csv als input gebruikt.
 
@@ -59,6 +62,16 @@ METADATA_COLS = [
 ]
 
 N_COLS_GRID = 5  # aantal subplots per rij in de histogram-grid
+
+# Nachten uitgesloten wegens een night-level baseline/opname-artefact:
+# 90-100% van de events in deze nachten had extreem lage spectrale ratio's
+# (z < -3 op alle banden), gevonden met 3.1.1_scatter_divergent.py.
+# Andere nachten van dezelfde subjects waren wel in orde.
+EXCLUDE_NIGHTS: list[tuple[str, str]] = [
+    ("bnbd_nsr_17598", "T0_N1"),
+    ("bnbd_nsr_16379", "T0_N1"),
+    ("bnbd_nsr_19611", "T0_N1"),
+]
 
 # Features die NIET getransformeerd worden (nauwelijks scheef; ln zou ze links-scheef maken).
 FORCE_UNTOUCHED_COLS: list[str] = ["motion_rms", "oxy_amp_ratio"]
@@ -102,6 +115,32 @@ def load_feature_matrix(path: Path) -> pd.DataFrame:
     print(f"Featurematrix geladen: {path}")
     print(f"Shape: {df.shape}")
     return df
+
+
+def exclude_nights(df: pd.DataFrame, exclude: list[tuple[str, str]],
+                   log_path: Path) -> pd.DataFrame:
+    """
+    Verwijdert alle events van de opgegeven (subject_id, night_id)-combinaties.
+    Filtert op de combinatie, want night_id (T0_N1 etc.) komt bij elk subject terug.
+    Schrijft weg hoeveel events per nacht verwijderd zijn.
+    """
+    if not exclude:
+        return df
+
+    keys = df["subject_id"].astype(str).str.strip() + "|" + df["night_id"].astype(str).str.strip()
+    excl_keys = {f"{s}|{n}" for s, n in exclude}
+
+    not_found = sorted(excl_keys - set(keys))
+    if not_found:
+        print(f"[LET OP] deze nachten staan niet in de data: {not_found}")
+
+    mask = keys.isin(excl_keys)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    (df[mask].groupby(["subject_id", "night_id"]).size()
+       .rename("n_events_removed").to_csv(log_path))
+    print(f"{int(mask.sum())} events uit {len(excl_keys) - len(not_found)} nacht(en) verwijderd "
+          f"({int((~mask).sum())} van {len(df)} events over). Log: {log_path}")
+    return df.loc[~mask].reset_index(drop=True)
 
 
 def get_feature_columns(df: pd.DataFrame) -> list[str]:
@@ -225,6 +264,7 @@ def run(df: pd.DataFrame, feature_cols: list[str], output_dir: Path) -> pd.DataF
     print(transform_choices.to_string(index=False))
     print(f"\nOpgeslagen in {output_dir}:"
           "\n  - arousal_feature_matrix_transformed.csv\n  - transform_choices.csv"
+          "\n  - excluded_nights.csv"
           "\n  - feature_distributions.png\n  - feature_distributions_transformed.png")
 
     return df_t
@@ -239,6 +279,7 @@ def main():
     args = parser.parse_args()
 
     df = load_feature_matrix(args.input)
+    df = exclude_nights(df, EXCLUDE_NIGHTS, args.output_dir / "excluded_nights.csv")
     feature_cols = get_feature_columns(df)
     print(f"\n{len(feature_cols)} features (metadata-kolommen uitgesloten): {feature_cols}")
 

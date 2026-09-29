@@ -2,7 +2,7 @@
 =============================================================================
 3.1_corr_vif.py
 
-Correlatie- en multicollineariteit-check op de geschaalde arousal-featurematrix
+Correlatie-check op de geschaalde arousal-featurematrix
 (output van 2.2_scale_features.py), als check tussen scaling en UMAP/HDBSCAN.
 
 Hoofdanalyse: Pearson op de geschaalde matrix
@@ -18,21 +18,18 @@ Controle: Spearman op dezelfde matrix
   Paren waar Pearson en Spearman sterk verschillen wijzen op outliers of
   niet-lineaire (maar monotone) samenhang -> even visueel checken.
 
-VIF (Pearson-based, passend bij de hoofdanalyse)
-  VIF vangt multicollineariteit over meerdere features tegelijk. Berekend op de
-  geschaalde waarden MET een constante (intercept) in het model; zonder
-  constante geeft statsmodels' variance_inflation_factor een ongecentreerde,
-  vertekende VIF. Na StandardScaler zijn de features al mean-gecentreerd, maar
-  na het droppen van rijen met NaN geldt dat niet meer exact -- de constante
-  houdt de VIF dan correct.
-
 Stappenplan:
   1. Geschaalde featurematrix inladen (arousal_feature_matrix_scaled.csv).
   2. Pearson-correlatiematrix (hoofd) + Spearman-correlatiematrix (controle).
   3. Heatmaps van beide.
   4. Sterk gecorreleerde paren (|r| > CORR_THRESHOLD, Pearson), met Spearman erbij.
   5. Paren waar |r - rho| > DIFF_THRESHOLD (Pearson vs Spearman wijken af).
-  6. VIF op de geschaalde features (met intercept) + flaggen > VIF_THRESHOLD.
+  6. CORRELATIEGROEPEN: features die onderling allemaal |rho| >= GROUP_THRESHOLD
+     hebben (hiërarchische clustering op 1 - |rho|, complete linkage). Uit elke
+     groep kies je er één. Per feature: gemiddelde |rho| met de rest van de groep
+     (hoe "centraal") en % missend -> helpt bij de keuze.
+     Complete linkage garandeert dat ELK paar binnen een groep >= de drempel
+     correleert (geen ketens A~B~C waarbij A en C nauwelijks samenhangen).
 
 Gebruik:
   python 3.1_corr_vif.py
@@ -47,8 +44,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from statsmodels.stats.outliers_influence import variance_inflation_factor
-from statsmodels.tools.tools import add_constant
+from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
+from scipy.spatial.distance import squareform
 
 # =============================================================================
 # CONFIGURATIE
@@ -72,7 +69,9 @@ METADATA_COLS = [
 
 CORR_THRESHOLD = 0.80   # |r| boven deze grens = "sterk gecorreleerd"
 DIFF_THRESHOLD = 0.15   # |r - rho| boven deze grens = Pearson en Spearman wijken af
-VIF_THRESHOLD = 5.0     # gangbare vuistregel-grens voor multicollineariteit
+
+GROUP_METHOD = "spearman"   # correlatie waarop de groepen gebaseerd zijn
+GROUP_THRESHOLD = 0.80      # binnen een groep: elk paar |rho| >= deze waarde
 
 
 # =============================================================================
@@ -192,31 +191,89 @@ def list_divergent_pairs(pairs: pd.DataFrame, threshold: float) -> pd.DataFrame:
 
 
 # =============================================================================
-# SECTIE 3 — VIF OP GESCHAALDE FEATURES (MET INTERCEPT)
+# SECTIE 3 — CORRELATIEGROEPEN
 # =============================================================================
 
-def compute_vif(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
+def find_corr_groups(corr: pd.DataFrame, threshold: float) -> pd.Series:
     """
-    VIF per feature op de geschaalde waarden, met een constante in het model.
-    Rijen met NaN/inf in minstens één feature worden alleen voor deze check
-    uitgesloten (OLS kan niet met missing values omgaan).
+    Hiërarchische clustering op afstand 1 - |r|, complete linkage, gesneden op
+    1 - threshold. Resultaat: groepsnummer per feature. Binnen een groep heeft
+    elk paar |r| >= threshold.
     """
-    sub = df[feature_cols].replace([np.inf, -np.inf], np.nan)
-    n_before = len(sub)
-    sub = sub.dropna()
-    n_dropped = n_before - len(sub)
-    if n_dropped > 0:
-        print(f"[LET OP] {n_dropped} rij(en) met NaN/inf uitgesloten voor VIF-berekening "
-              f"({len(sub)} van {n_before} rijen gebruikt).")
+    dist = 1 - corr.abs().fillna(0).to_numpy()
+    np.fill_diagonal(dist, 0)
+    dist = (dist + dist.T) / 2                      # numeriek symmetrisch maken
+    Z = linkage(squareform(dist, checks=False), method="complete")
+    labels = fcluster(Z, t=1 - threshold, criterion="distance")
+    return pd.Series(labels, index=corr.columns, name="group"), Z
 
-    X = add_constant(sub, has_constant="add").to_numpy()
-    # kolom 0 is de constante -> features beginnen bij index 1
+
+def summarize_groups(corr: pd.DataFrame, groups: pd.Series, df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Eén rij per feature: groep, groepsgrootte, gemiddelde en minimale |rho| met
+    de andere groepsleden en % missend. Groepen genummerd 1..k op grootte.
+    'suggested' = het meest centrale lid (hoogste gemiddelde |rho|) -- alleen een
+    startpunt, kies inhoudelijk.
+    """
+    # hernummer: grootste groep = 1
+    sizes = groups.value_counts()
+    order = sorted(sizes.index, key=lambda g: (-sizes[g], groups[groups == g].index[0]))
+    renum = {old: new for new, old in enumerate(order, start=1)}
+    groups = groups.map(renum)
+
     rows = []
-    for i, col in enumerate(feature_cols, start=1):
-        vif_val = variance_inflation_factor(X, i)
-        rows.append({"feature": col, "VIF": round(float(vif_val), 3)})
+    for g, members in groups.groupby(groups):
+        feats = list(members.index)
+        for f in feats:
+            others = [o for o in feats if o != f]
+            a = corr.loc[f, others].abs() if others else pd.Series(dtype=float)
+            rows.append({
+                "group": g,
+                "group_size": len(feats),
+                "feature": f,
+                f"mean_abs_{GROUP_METHOD}_in_group": round(a.mean(), 3) if others else np.nan,
+                f"min_abs_{GROUP_METHOD}_in_group": round(a.min(), 3) if others else np.nan,
+                "pct_missing": round(100 * df[f].isna().mean(), 2),
+            })
+    out = pd.DataFrame(rows)
+    key = f"mean_abs_{GROUP_METHOD}_in_group"
+    out = out.sort_values(["group", key], ascending=[True, False], na_position="last")
+    out["suggested"] = False
+    multi = out["group_size"] > 1
+    out.loc[out[multi].groupby("group")[key].idxmax(), "suggested"] = True
+    return out.reset_index(drop=True)
 
-    return pd.DataFrame(rows).sort_values("VIF", ascending=False).reset_index(drop=True)
+
+def print_groups(summary: pd.DataFrame, threshold: float) -> None:
+    key = f"mean_abs_{GROUP_METHOD}_in_group"
+    multi = summary[summary["group_size"] > 1]
+    single = summary[summary["group_size"] == 1]["feature"].tolist()
+    n_groups = multi["group"].nunique()
+    print(f"\nStap 6: {n_groups} correlatiegroep(en) (elk paar |{GROUP_METHOD}| >= {threshold}); "
+          "kies uit elke groep één feature:")
+    for g, sub in multi.groupby("group"):
+        print(f"\n  Groep {g} ({len(sub)} features, min |rho| in groep = "
+              f"{sub[f'min_abs_{GROUP_METHOD}_in_group'].min():.2f}):")
+        for _, r in sub.iterrows():
+            flag = "  <- meest centraal" if r["suggested"] else ""
+            print(f"    {r['feature']:<22} gem |rho| = {r[key]:.2f}   "
+                  f"missend = {r['pct_missing']:.1f}%{flag}")
+    print(f"\n  Losse features (geen partner >= {threshold}), gewoon houden: {single if single else '(geen)'}")
+
+
+def plot_dendrogram(Z, labels: list[str], threshold: float, out_path: Path) -> None:
+    fig, ax = plt.subplots(figsize=(max(8, 0.35 * len(labels)), 5))
+    dendrogram(Z, labels=labels, color_threshold=1 - threshold, leaf_rotation=90,
+               leaf_font_size=7, ax=ax)
+    ax.axhline(1 - threshold, color="crimson", ls="--", lw=1,
+               label=f"snijlijn: |{GROUP_METHOD}| = {threshold}")
+    ax.set_ylabel(f"1 - |{GROUP_METHOD}| (complete linkage)")
+    ax.set_title("Correlatiegroepen van features")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"Dendrogram opgeslagen: {out_path}")
 
 
 # =============================================================================
@@ -257,22 +314,21 @@ def main():
     print(f"\nStap 5: {len(divergent)} paar/paren met |r - rho| > {DIFF_THRESHOLD}:")
     print(divergent.to_string(index=False) if not divergent.empty else "  (geen)")
 
-    # --- Stap 6: VIF + flaggen ---
-    vif_df = compute_vif(df, feature_cols)
-    vif_df.to_csv(OUTPUT_DIR / "vif.csv", index=False)
-    print(f"\nStap 6: VIF op geschaalde features (met intercept):")
-    print(vif_df.to_string(index=False))
-
-    flagged = vif_df[vif_df["VIF"] > VIF_THRESHOLD]
-    print(f"\n{len(flagged)} feature(s) met VIF > {VIF_THRESHOLD}:")
-    print(flagged.to_string(index=False) if not flagged.empty else "  (geen)")
+    # --- Stap 6: correlatiegroepen ---
+    group_corr = spearman if GROUP_METHOD == "spearman" else pearson
+    groups, Z = find_corr_groups(group_corr, GROUP_THRESHOLD)
+    summary = summarize_groups(group_corr, groups, df)
+    summary.to_csv(OUTPUT_DIR / "corr_groups.csv", index=False)
+    print_groups(summary, GROUP_THRESHOLD)
+    plot_dendrogram(Z, list(group_corr.columns), GROUP_THRESHOLD,
+                    OUTPUT_DIR / "corr_groups_dendrogram.png")
 
     print(f"\nAlles opgeslagen in: {OUTPUT_DIR}")
     print("  - pearson_corr_matrix.csv / pearson_corr_heatmap.png   <- hoofdanalyse")
     print("  - spearman_corr_matrix.csv / spearman_corr_heatmap.png <- controle")
     print("  - high_corr_pairs.csv                <- redundante paren (Pearson, met rho erbij)")
     print("  - pearson_vs_spearman_divergent.csv  <- paren om visueel te checken (scatterplot)")
-    print("  - vif.csv                            <- hoge VIF = kandidaat om te droppen")
+    print("  - corr_groups.csv / corr_groups_dendrogram.png <- kies 1 feature per groep")
 
 
 if __name__ == "__main__":
