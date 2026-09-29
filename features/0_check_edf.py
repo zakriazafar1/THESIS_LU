@@ -1,15 +1,10 @@
 """
 =============================================================================
-.check_edf.py  (dependency-free versie)
+.check_edf.py 
 
-Zelfde doel als eerder: print per kanaal in een EDF-bestand de eenheid
-(physical_dimension) en het bereik (physical_min/max, digital_min/max),
-zodat je weet welke schaalfactor er nodig is voor dX/dY/dZ.
-
-Dit keer ZONDER pyedflib of mne -- puur met de standaardbibliotheek van
-Python. Dat kan omdat de EDF-header een simpel, vast-opgebouwd ASCII-blok
-is aan het begin van het bestand; die lezen we hier rechtstreeks uit, dus
-geen gedoe meer met het compileren van pyedflib.
+Print per kanaal in een EDF-bestand de eenheid (physical_dimension) 
+en het bereik (physical_min/max, digital_min/max), zodat je weet 
+welke schaalfactor er nodig is voor dX/dY/dZ.
 
 Gebruik:
   python .check_edf.py --edf "<pad naar .edf>"

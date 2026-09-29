@@ -19,9 +19,9 @@ ze dynamisch op i.p.v. hardcoded):
             dX.edf
             dY.edf
             dZ.edf
-            OXY_IR_AC.edf                   (optioneel)
+            OXY_IR_AC.edf                   
           sleepArchitecture/
-            bnbd_<groep>_XXXXX_T0_N#.csv           <- hypnogram (R&K stages)  [optioneel]
+            bnbd_<groep>_XXXXX_T0_N#.csv           <- hypnogram (R&K stages) 
             bnbd_<groep>_XXXXX_T0_N#_events.csv    <- Lucija's gescoorde events
 
 We zoeken ALLE "sleepArchitecture" mappen onder RAW_ROOT via rglob, dus het
@@ -31,8 +31,8 @@ de sleepArchitecture-map (met fallback naar de nachtmap zelf als die submap
 er toch niet is).
 
 BELANGRIJK:
-  - De naam van het events-bestand bevat "_events" (zoals eerder gezien:
-    bnbd_nsr_01272_T0_N3_events.csv, kolommen: event, start, stop, duration, channel)
+  - De naam van het events-bestand bevat "_events" (bv. bnbd_nsr_01272_T0_N3_events.csv, 
+    kolommen: event, start, stop, duration, channel)
   - Het hypnogram-bestand heeft dezelfde naam als de nacht-map zelf, zonder
     "_events" suffix (bv. bnbd_nsr_01272_T0_N2.csv)
   - Draai dit script eerst met --inspect zodat je precies ziet welke bestanden
@@ -67,14 +67,14 @@ mne.set_log_level("ERROR")
 
 RAW_ROOT   = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
 GROUPS     = ["NSR", "Prezens", "SAV"]
-EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices")
+EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info\test")
 
 TARGET_SFREQ = 128.0          
 NOTCH_HZ = 50.0
 HIGHPASS_HZ = 0.1
 LOWPASS_HZ = 35.0
 
-EPOCH_SEC = 30.0               # epoch 1 = t=0s
+EPOCH_SEC = 30.0                        # epoch 1 = t=0s
 
 EEG_CHANNELS = ["EEG L", "EEG R"]      # zoals de EDF-bestandsnamen heten
 CHANNEL_LABELS = {"EEG L": "L", "EEG R": "R"}  # korte labels voor kolomnamen in de featurematrix
@@ -507,6 +507,7 @@ def process_night(night_dir: Path, ids: dict, inspect: bool = False,
     # daarna hergebruiken voor elk event (i.p.v. per event opnieuw filteren).
     night_envelopes = compute_night_band_envelopes(signals)
     night_baselines = compute_night_baselines(night_envelopes)
+    
     oxy_night_std = np.std(signals[OXY_CHANNEL]) if OXY_CHANNEL in signals else None
 
     rows = []

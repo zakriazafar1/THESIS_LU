@@ -2,26 +2,30 @@
 =============================================================================
 2.1_transform_features.py
 
-Transformatie (log) van de arousal-featurematrix (output van 1_feature_matrix.py). 
+Log-transformatie van de arousal-featurematrix (arousal_feature_matrix_FILTERED.csv).
 
 Stappenplan:
-  1. Visualiseer de verdeling van elke feature (histogram + skewness/kurtosis),
-     en check op missings/inf.
-  2. Transform skewed features: voor ELKE feature wordt automatisch gekozen
-     tussen geen transform / signed-log1p / signed-sqrt, op basis van welke
-     variant de laagste |skew| oplevert (signed = sign(x)*f(|x|), zodat het
-     ook correct zou werken mocht een feature negatieve waarden bevatten).
-     -- Zet features in FORCE_UNTOUCHED_COLS als je ze expliciet nooit wil
-     transformeren. Skew wordt na transformatie opnieuw berekend en
-     weggeschreven, samen met welke variant per feature gekozen is
-     (transform_choices.csv).
+  1. Visualiseer de verdeling van elke feature (histogram met skewness),
+     vóór en na transformatie.
+  2. Transformeer met een VASTE regel (geen auto-selectie per feature):
+       - alle features -> natuurlijke log (ln), behalve:
+       - FORCE_UNTOUCHED_COLS (motion_rms, oxy_amp_ratio) -> ongetransformeerd.
+     Rationale: de spectrale features zijn ratio's (strikt positief, sterk
+     rechts-scheef, veel waarden < 1). ln maakt ze symmetrisch rond 0
+     (halvering en verdubbeling even ver van 0) en haalt de scheefheid
+     grotendeels weg. log1p is hier minder geschikt: die drukt het bereik
+     < 1 plat, waardoor de skew blijft. motion_rms en oxy_amp_ratio zijn
+     nauwelijks scheef; ln zou ze juist links-scheef maken.
+     ln vereist strikt positieve waarden: het script stopt met een foutmelding
+     als een log-feature een waarde <= 0 bevat.
+     Skew voor/na wordt per feature weggeschreven (transform_choices.csv).
 
   Scaling gebeurt in 2.2_scale_features.py, dat de hier weggeschreven
   arousal_feature_matrix_transformed.csv als input gebruikt.
 
 Gebruik:
   python 2.1_transform_features.py
-  python 2.1_transform_features.py --inspect-distributions   # print tabellen ook naar console
+  python 2.1_transform_features.py --input <pad> --output-dir <map>
 =============================================================================
 """
 
@@ -31,24 +35,23 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.stats import skew, kurtosis
+from scipy.stats import skew
 
 # =============================================================================
 # CONFIGURATIE
 # =============================================================================
 
 DEFAULT_INPUT = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\arousal_feature_matrix.csv"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info\arousal_feature_matrix_FILTERED.csv"
 )
 
 OUTPUT_DIR = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\transformed"
 )
 
-# Metadata kolommen, dus uitgesloten van distributie-plots en transformatie. 
-# stage_rk is metadata voor interpretatie/descriptive_note, geen clustering-input. 
-# duration_sec is WEL een feature. 
-
+# Metadata kolommen, dus uitgesloten van distributie-plots en transformatie.
+# stage_rk is metadata voor interpretatie/descriptive_note, geen clustering-input.
+# duration_sec is WEL een feature.
 METADATA_COLS = [
     "subject_id", "group", "night_id", "event_idx",
     "start_sec", "end_sec", "sec_prev_event",
@@ -57,8 +60,8 @@ METADATA_COLS = [
 
 N_COLS_GRID = 5  # aantal subplots per rij in de histogram-grid
 
-# Zet hier features in die je expliciet NOOIT wil transformeren (bv. om domein-redenen) 
-FORCE_UNTOUCHED_COLS: list[str] = []
+# Features die NIET getransformeerd worden (nauwelijks scheef; ln zou ze links-scheef maken).
+FORCE_UNTOUCHED_COLS: list[str] = ["motion_rms", "oxy_amp_ratio"]
 
 # =============================================================================
 # STAP 1 — INLADEN
@@ -67,13 +70,9 @@ FORCE_UNTOUCHED_COLS: list[str] = []
 def load_feature_matrix(path: Path) -> pd.DataFrame:
     """
     Leest de featurematrix in. Detecteert het scheidingsteken automatisch
-    (sep=None + engine="python") i.p.v. altijd komma aan te nemen, en checkt
-    daarna of numerieke kolommen alsnog als tekst zijn binnengekomen (het
-    Excel-NL-scenario: puntkomma als veld-scheiding EN komma als decimaal-
-    teken, bv. "1,234" i.p.v. "1.234") -- zo ja, dan wordt opnieuw ingelezen
-    met decimal=",". 1_feature_matrix.py zelf schrijft altijd standaard-CSV,
-    maar garandeert niet dat het bestand nooit per ongeluk in Excel met een
-    NL-locale geopend en opgeslagen wordt.
+    (sep=None + engine="python"), en checkt daarna of numerieke kolommen als
+    tekst zijn binnengekomen (Excel-NL-scenario: puntkomma als scheiding EN
+    komma als decimaalteken) -- zo ja, dan opnieuw inlezen met decimal=",".
     """
     df = pd.read_csv(path, sep=None, engine="python")
 
@@ -111,51 +110,12 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
 
 
 # =============================================================================
-# STAP 2 - MISSINGS / INF CHECK
+# STAP 2 — DISTRIBUTIES VISUALISEREN (voor/na transformatie)
 # =============================================================================
 
-def summarize_missingness(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
-    """Telt per feature: aantal NaN, aantal +-inf, en % van totaal."""
-    rows = []
-    n = len(df)
-    for col in feature_cols:
-        vals = df[col]
-        n_nan = vals.isna().sum()
-        n_inf = np.isinf(pd.to_numeric(vals, errors="coerce").to_numpy(dtype="float64", na_value=0.0)).sum()
-        rows.append({
-            "feature": col,
-            "n_missing": n_nan,
-            "pct_missing": round(100 * n_nan / n, 2) if n else np.nan,
-            "n_inf": n_inf,
-            "pct_inf": round(100 * n_inf / n, 2) if n else np.nan,
-        })
-    summary = pd.DataFrame(rows).sort_values("pct_missing", ascending=False).reset_index(drop=True)
-    return summary
-
-
-# =============================================================================
-# STAP 3 — DISTRIBUTIES VISUALISEREN (voor/na transformatie)
-# =============================================================================
-
-def compute_distribution_stats(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
-    """Skewness en kurtosis per feature (op de niet-NaN, eindige waarden)."""
-    rows = []
-    for col in feature_cols:
-        vals = df[col].replace([np.inf, -np.inf], np.nan).dropna()
-        if len(vals) < 3:
-            rows.append({"feature": col, "skew": np.nan, "kurtosis": np.nan,
-                          "min": np.nan, "max": np.nan, "has_negative": np.nan})
-            continue
-        rows.append({
-            "feature": col,
-            "skew": round(skew(vals), 3),
-            "kurtosis": round(kurtosis(vals), 3),
-            "min": round(vals.min(), 3),
-            "max": round(vals.max(), 3),
-            "has_negative": bool((vals < 0).any()),
-        })
-    stats = pd.DataFrame(rows)
-    return stats.sort_values("skew", key=lambda s: s.abs(), ascending=False).reset_index(drop=True)
+def _skew_or_nan(vals: pd.Series) -> float:
+    vals = vals.replace([np.inf, -np.inf], np.nan).dropna()
+    return skew(vals) if len(vals) >= 3 else np.nan
 
 
 def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path) -> None:
@@ -189,65 +149,54 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
 
 
 # =============================================================================
-# STAP 4 — TRANSFORMATIE 
+# STAP 3 — TRANSFORMATIE (vaste regel: ln, behalve FORCE_UNTOUCHED_COLS)
 # =============================================================================
 
-def signed_log1p(x: pd.Series) -> pd.Series:
-    """sign(x) * log1p(|x|) -- voor strikt-positieve data identiek aan log1p."""
-    x = x.replace([np.inf, -np.inf], np.nan)
-    return np.sign(x) * np.log1p(np.abs(x))
-
-
-def signed_sqrt(x: pd.Series) -> pd.Series:
-    """sign(x) * sqrt(|x|) -- voor strikt-positieve data identiek aan sqrt."""
-    x = x.replace([np.inf, -np.inf], np.nan)
-    return np.sign(x) * np.sqrt(np.abs(x))
-
-
 def classify_transform_columns(feature_cols: list[str]) -> tuple[list[str], list[str]]:
-    """
-    Verdeelt de features in: auto_cols (gaan door de none/log1p/sqrt-selectie)
-    en forced_untouched_cols (expliciet uitgesloten via FORCE_UNTOUCHED_COLS).
-    """
-    forced_untouched = [c for c in feature_cols if c in FORCE_UNTOUCHED_COLS]
-    auto_cols = [c for c in feature_cols if c not in FORCE_UNTOUCHED_COLS]
-    return auto_cols, forced_untouched
+    """Verdeelt de features in log_cols (-> ln) en untouched_cols (FORCE_UNTOUCHED_COLS)."""
+    untouched = [c for c in feature_cols if c in FORCE_UNTOUCHED_COLS]
+    log_cols = [c for c in feature_cols if c not in FORCE_UNTOUCHED_COLS]
+    missing = [c for c in FORCE_UNTOUCHED_COLS if c not in feature_cols]
+    if missing:
+        print(f"[LET OP] FORCE_UNTOUCHED_COLS bevat kolommen die niet in de matrix staan: {missing}")
+    return log_cols, untouched
 
 
-def apply_best_transform_group(df: pd.DataFrame, cols: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Voor elke kolom in cols: probeer geen transform, signed-log1p en signed-sqrt,
-    en kies de variant met de laagste |skew|. Geeft de getransformeerde df terug
-    plus een keuze-overzicht (skew voor elke variant + welke gekozen is).
-    """
+def check_strictly_positive(df: pd.DataFrame, log_cols: list[str]) -> None:
+    """ln is alleen gedefinieerd voor x > 0 -- stop met een duidelijke fout als dat niet klopt."""
+    problems = []
+    for c in log_cols:
+        vals = df[c].replace([np.inf, -np.inf], np.nan).dropna()
+        n_nonpos = int((vals <= 0).sum())
+        if n_nonpos:
+            problems.append(f"  {c}: {n_nonpos} waarde(n) <= 0 (min = {vals.min():.4g})")
+    if problems:
+        raise ValueError(
+            "ln-transformatie niet mogelijk, deze features bevatten waarden <= 0:\n"
+            + "\n".join(problems)
+            + "\nVoeg ze toe aan FORCE_UNTOUCHED_COLS of kies een andere transformatie."
+        )
+
+
+def apply_log_transform(df: pd.DataFrame, log_cols: list[str], untouched_cols: list[str]
+                        ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Past ln toe op log_cols; untouched_cols blijven origineel. Geeft df + overzicht terug."""
     out = df.copy()
     choices = []
-    for c in cols:
+    for c in log_cols + untouched_cols:
         raw = df[c].replace([np.inf, -np.inf], np.nan)
-        candidates = {
-            "geen (origineel)": raw,
-            "log1p (signed)": signed_log1p(raw),
-            "sqrt (signed)": signed_sqrt(raw),
-        }
-        skews = {}
-        for name, vals in candidates.items():
-            finite = vals.dropna()
-            skews[name] = skew(finite) if len(finite) >= 3 else np.nan
-
-        valid = {k: v for k, v in skews.items() if pd.notna(v)}
-        if not valid:
-            chosen = "geen (origineel)"
+        if c in log_cols:
+            out[c] = np.log(raw)
+            transform = "ln"
         else:
-            chosen = min(valid, key=lambda k: abs(valid[k]))
-
-        out[c] = candidates[chosen]
+            out[c] = raw
+            transform = "geen (FORCE_UNTOUCHED)"
+        sb, sa = _skew_or_nan(raw), _skew_or_nan(out[c])
         choices.append({
             "feature": c,
-            "skew_geen": round(skews["geen (origineel)"], 3) if pd.notna(skews["geen (origineel)"]) else np.nan,
-            "skew_log1p": round(skews["log1p (signed)"], 3) if pd.notna(skews["log1p (signed)"]) else np.nan,
-            "skew_sqrt": round(skews["sqrt (signed)"], 3) if pd.notna(skews["sqrt (signed)"]) else np.nan,
-            "chosen_transform": chosen,
-            "skew_after": round(skews[chosen], 3) if pd.notna(skews[chosen]) else np.nan,
+            "transform": transform,
+            "skew_before": round(sb, 3) if pd.notna(sb) else np.nan,
+            "skew_after": round(sa, 3) if pd.notna(sa) else np.nan,
         })
     return out, pd.DataFrame(choices)
 
@@ -256,53 +205,27 @@ def apply_best_transform_group(df: pd.DataFrame, cols: list[str]) -> tuple[pd.Da
 # HOOFDLOOP
 # =============================================================================
 
-def run_steps_1_and_2(df: pd.DataFrame, feature_cols: list[str], verbose: bool) -> pd.DataFrame:
-    # --- Stap 1 ---
-    missing_summary = summarize_missingness(df, feature_cols)
-    dist_stats = compute_distribution_stats(df, feature_cols)
+def run(df: pd.DataFrame, feature_cols: list[str], output_dir: Path) -> pd.DataFrame:
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    missing_summary.to_csv(OUTPUT_DIR / "missing_inf_summary.csv", index=False)
-    dist_stats.to_csv(OUTPUT_DIR / "distribution_stats.csv", index=False)
-    plot_distributions(df, feature_cols, OUTPUT_DIR / "feature_distributions.png")
-    print(f"\nStap 1 opgeslagen in: {OUTPUT_DIR}")
-    print("  - missing_inf_summary.csv\n  - distribution_stats.csv\n  - feature_distributions.png")
+    # --- Stap 1: distributies vóór transformatie ---
+    plot_distributions(df, feature_cols, output_dir / "feature_distributions.png")
 
-    # --- Stap 2 ---
-    auto_cols, forced_untouched_cols = classify_transform_columns(feature_cols)
+    # --- Stap 2: transformatie ---
+    log_cols, untouched_cols = classify_transform_columns(feature_cols)
+    check_strictly_positive(df, log_cols)
+    df_t, transform_choices = apply_log_transform(df, log_cols, untouched_cols)
 
-    df_t = df.copy()
-    df_t_auto, transform_choices = apply_best_transform_group(df, auto_cols)
-    for c in auto_cols:
-        df_t[c] = df_t_auto[c]
-    # forced_untouched_cols: blijven ongemoeid, df_t heeft daar nog de originele waarden.
+    df_t.to_csv(output_dir / "arousal_feature_matrix_transformed.csv", index=False)
+    transform_choices.to_csv(output_dir / "transform_choices.csv", index=False)
+    plot_distributions(df_t, feature_cols, output_dir / "feature_distributions_transformed.png")
 
-    dist_stats_after = compute_distribution_stats(df_t, feature_cols)
-    df_t.to_csv(OUTPUT_DIR / "arousal_feature_matrix_transformed.csv", index=False)
-    dist_stats_after.to_csv(OUTPUT_DIR / "distribution_stats_transformed.csv", index=False)
-    if len(transform_choices):
-        transform_choices.to_csv(OUTPUT_DIR / "transform_choices.csv", index=False)
-    plot_distributions(df_t, feature_cols, OUTPUT_DIR / "feature_distributions_transformed.png")
-
-    n_log = (transform_choices["chosen_transform"] == "log1p (signed)").sum() if len(transform_choices) else 0
-    n_sqrt = (transform_choices["chosen_transform"] == "sqrt (signed)").sum() if len(transform_choices) else 0
-    n_none = (transform_choices["chosen_transform"] == "geen (origineel)").sum() if len(transform_choices) else 0
-    print(f"\nStap 2: per feature automatisch gekozen tussen geen/log1p/sqrt o.b.v. laagste |skew|: "
-          f"{n_log} log1p, {n_sqrt} sqrt, {n_none} geen transform.")
-    if forced_untouched_cols:
-        print(f"  Expliciet ongemoeid (FORCE_UNTOUCHED_COLS): {forced_untouched_cols}")
-    if len(transform_choices):
-        print(transform_choices.to_string(index=False))
-    print("  - arousal_feature_matrix_transformed.csv\n  - distribution_stats_transformed.csv"
-          "\n  - transform_choices.csv\n  - feature_distributions_transformed.png")
-
-    if verbose:
-        print("\n--- Missing / inf overzicht ---")
-        print(missing_summary.to_string(index=False))
-        print("\n--- Skewness / kurtosis vóór transformatie ---")
-        print(dist_stats.to_string(index=False))
-        print("\n--- Skewness / kurtosis NA transformatie ---")
-        print(dist_stats_after.to_string(index=False))
+    print(f"\nVaste regel -- {len(log_cols)} features ln-getransformeerd, "
+          f"{len(untouched_cols)} ongemoeid ({untouched_cols}).")
+    print(transform_choices.to_string(index=False))
+    print(f"\nOpgeslagen in {output_dir}:"
+          "\n  - arousal_feature_matrix_transformed.csv\n  - transform_choices.csv"
+          "\n  - feature_distributions.png\n  - feature_distributions_transformed.png")
 
     return df_t
 
@@ -310,16 +233,16 @@ def run_steps_1_and_2(df: pd.DataFrame, feature_cols: list[str], verbose: bool) 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT,
-                         help="Pad naar arousal_feature_matrix.csv")
-    parser.add_argument("--inspect-distributions", action="store_true",
-                         help="Print de volledige tabellen ook naar de console")
+                        help="Pad naar arousal_feature_matrix_FILTERED.csv")
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR,
+                        help="Map voor de output")
     args = parser.parse_args()
 
     df = load_feature_matrix(args.input)
     feature_cols = get_feature_columns(df)
     print(f"\n{len(feature_cols)} features (metadata-kolommen uitgesloten): {feature_cols}")
 
-    run_steps_1_and_2(df, feature_cols, verbose=args.inspect_distributions)
+    run(df, feature_cols, args.output_dir)
 
 
 if __name__ == "__main__":
