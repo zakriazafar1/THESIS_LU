@@ -29,9 +29,9 @@ Stappenplan:
   4. Staart-events wegschrijven + telling per subject/nacht.
 
 Gebruik:
-  python 3.1.1_scatter_divergent.py
-  python 3.1.1_scatter_divergent.py --top 9 --tail-z -4
-  python 3.1.1_scatter_divergent.py --pair mean_theta_ratio mean_beta_ratio
+  python 3.2_check_corr.py
+  python 3.2_check_corr.py --top 9 --tail-z -4
+  python 3.2_check_corr.py --pair mean_theta_ratio mean_beta_ratio
 =============================================================================
 """
 
@@ -49,11 +49,11 @@ from scipy.stats import pearsonr, spearmanr
 # =============================================================================
 
 SCALED_PATH = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled_after_excl\arousal_feature_matrix_scaled.csv"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled\arousal_feature_matrix_scaled.csv"
 )
 
 CORR_VIF_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\corr_vif\corr_before_excl"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\corr_vif"
 )
 DIVERGENT_PATH = CORR_VIF_DIR / "pearson_vs_spearman_divergent.csv"
 

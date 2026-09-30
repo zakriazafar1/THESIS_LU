@@ -53,7 +53,7 @@ from pathlib import Path
 import pandas as pd
 
 DEFAULT_SCRIPT = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_LU\features\3.4.1_cluster_inspect.py"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_LU\clustering\3.4.1_cluster_inspect.py"
 )
 DEFAULT_INPUT = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
