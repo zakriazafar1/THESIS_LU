@@ -72,7 +72,7 @@ METADATA_COLS = [
 N_COLS_GRID = 5  # aantal subplots per rij in de histogram-grid
 
 # =============================================================================
-# STAP 1 — INLADEN
+# STAP 1 - INLADEN
 # =============================================================================
 
 def load_transformed_matrix(path: Path) -> pd.DataFrame:
@@ -122,7 +122,7 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
 
 
 # =============================================================================
-# STAP 2 — STANDARDSCALER
+# STAP 2 - STANDARDSCALER
 # =============================================================================
 
 def scale_with_standard_scaler(df: pd.DataFrame, feature_cols: list[str]
@@ -178,7 +178,7 @@ def check_scaling(df_scaled: pd.DataFrame, feature_cols: list[str], tol: float =
 
 
 # =============================================================================
-# STAP 3 — PLOT
+# STAP 3 - PLOT
 # =============================================================================
 
 def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path, title_suffix: str = "") -> None:

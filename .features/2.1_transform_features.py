@@ -77,7 +77,7 @@ EXCLUDE_NIGHTS: list[tuple[str, str]] = [
 FORCE_UNTOUCHED_COLS: list[str] = ["motion_rms", "oxy_amp_ratio"]
 
 # =============================================================================
-# STAP 1 — INLADEN
+# STAP 1 - INLADEN
 # =============================================================================
 
 def load_feature_matrix(path: Path) -> pd.DataFrame:
@@ -149,7 +149,7 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
 
 
 # =============================================================================
-# STAP 2 — DISTRIBUTIES VISUALISEREN (voor/na transformatie)
+# STAP 2 - DISTRIBUTIES VISUALISEREN (voor/na transformatie)
 # =============================================================================
 
 def _skew_or_nan(vals: pd.Series) -> float:
@@ -188,7 +188,7 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
 
 
 # =============================================================================
-# STAP 3 — TRANSFORMATIE (vaste regel: ln, behalve FORCE_UNTOUCHED_COLS)
+# STAP 3 - TRANSFORMATIE (vaste regel: ln, behalve FORCE_UNTOUCHED_COLS)
 # =============================================================================
 
 def classify_transform_columns(feature_cols: list[str]) -> tuple[list[str], list[str]]:

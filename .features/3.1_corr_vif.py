@@ -75,7 +75,7 @@ GROUP_THRESHOLD = 0.80      # binnen een groep: elk paar |rho| >= deze waarde
 
 
 # =============================================================================
-# SECTIE 1 — INLADEN
+# SECTIE 1 - INLADEN
 # =============================================================================
 
 def load_scaled_matrix(path: Path) -> pd.DataFrame:
@@ -124,7 +124,7 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
 
 
 # =============================================================================
-# SECTIE 2 — CORRELATIEMATRICES
+# SECTIE 2 - CORRELATIEMATRICES
 # =============================================================================
 
 def compute_corr(df: pd.DataFrame, feature_cols: list[str], method: str) -> pd.DataFrame:
@@ -191,7 +191,7 @@ def list_divergent_pairs(pairs: pd.DataFrame, threshold: float) -> pd.DataFrame:
 
 
 # =============================================================================
-# SECTIE 3 — CORRELATIEGROEPEN
+# SECTIE 3 - CORRELATIEGROEPEN
 # =============================================================================
 
 def find_corr_groups(corr: pd.DataFrame, threshold: float) -> pd.Series:
