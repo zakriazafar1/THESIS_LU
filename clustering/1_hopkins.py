@@ -61,15 +61,12 @@ except ImportError:
         "    pip install scipy"
     )
 
-# >>> CHECK THIS PATH: point it at your reduced + scaled 8-feature matrix <<<
 DEFAULT_INPUT = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2"
-    r"\2. preprocessing\scaled\arousal_feature_matrix_reduced_scaled.csv"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\reduced\arousal_features_reduced_scaled.csv"
 )
 
 DEFAULT_OUTPUT_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
-    r"\THESIS_OUTPUTS\PROJECT 2\4. clustering\hopkins_reduced"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\4. clustering\hopkins_reduced"
 )
 
 OUTPUT_PREFIX = "hopkins_reduced"

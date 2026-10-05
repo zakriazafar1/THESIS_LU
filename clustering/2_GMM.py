@@ -25,7 +25,8 @@ Interpretatie
 
 Gebruik
 -------
-    python 2_GMM.py --input arousal_features_reduced_scaled.csv --outdir results_gmm
+    python 2_GMM.py                                   # standaardpaden (DEFAULT_INPUT / DEFAULT_OUTDIR)
+    python 2_GMM.py --input ander.csv --outdir andere_map
     python 2_GMM.py --inspect          # alleen data-check, geen fits
 """
 
@@ -37,6 +38,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.mixture import GaussianMixture
+
+# ---------------------------------------------------------------------------
+# Standaardpaden (overschrijfbaar met --input / --outdir)
+# ---------------------------------------------------------------------------
+BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
+DEFAULT_INPUT = BASE / "3. feature selection" / "reduced" / "arousal_features_reduced_scaled.csv"
+DEFAULT_OUTDIR = BASE / "4. clustering" / "GMM"
 
 # ---------------------------------------------------------------------------
 # Config
@@ -53,11 +61,11 @@ FEATURES = [
 ]
 ID_COLS = ["subject_id", "group", "night_id", "event_idx", "stage_rk"]
 
-K_MAX = 5
-N_INIT = 10
+K_MAX = 10
+N_INIT = 20
 SEED = 42
 REG_COVAR = 1e-6      # sklearn-default; kleine ridge op de diagonaal voor numerieke stabiliteit
-MAX_ITER = 1000
+MAX_ITER = 1500
 CERTAIN_THR = 0.85    # drempel voor "zeker toegewezen" event
 
 
@@ -194,8 +202,8 @@ def plot_results(res: pd.DataFrame, out: Path) -> None:
 def main() -> None:
     global K_MAX, N_INIT, SEED
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--input", type=Path, default=Path("arousal_features_reduced_scaled.csv"))
-    ap.add_argument("--outdir", type=Path, default=Path("results_gmm"))
+    ap.add_argument("--input", type=Path, default=DEFAULT_INPUT)
+    ap.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
     ap.add_argument("--kmax", type=int, default=K_MAX)
     ap.add_argument("--n-init", type=int, default=N_INIT)
     ap.add_argument("--seed", type=int, default=SEED)
