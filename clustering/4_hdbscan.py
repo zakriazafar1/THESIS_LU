@@ -94,7 +94,7 @@ BASE = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2"
 )
 DEFAULT_INPUT = BASE / r"4. clustering\3. pca\pca_scores_5pc_whitened.csv"
-OUTPUT_DIR = BASE / r"4. clustering\4. hdbscan\pca"
+OUTPUT_DIR = BASE / r"4. clustering\4. hdbscan"
 
 # Full grid.
 DEFAULT_MIN_CLUSTER_SIZE = [65, 130, 260, 650]         

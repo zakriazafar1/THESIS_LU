@@ -66,7 +66,7 @@ from sklearn.decomposition import PCA
 BASE = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2"
 )
-DEFAULT_INPUT = BASE / r"3. feature selection\reduced feature matrix\arousal_features_reduced_scaled.csv"
+DEFAULT_INPUT = BASE / r"reduced feature matrix\arousal_features_reduced_scaled.csv"
 OUTPUT_DIR = BASE / r"4. clustering\3. pca"
 
 METADATA_COLS = [

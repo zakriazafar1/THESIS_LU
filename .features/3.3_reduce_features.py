@@ -52,7 +52,7 @@ ORIGINAL_PATH = BASE / r"1. feature matrices\.feature info\arousal_feature_matri
 TRANSFORMED_PATH = BASE / r"2. preprocessing\transformed\arousal_feature_matrix_transformed.csv"
 SCALED_PATH = BASE / r"2. preprocessing\scaled\arousal_feature_matrix_scaled.csv"
 
-OUTPUT_DIR = BASE / r"3. feature selection\reduced feature matrix"
+OUTPUT_DIR = BASE / r"reduced feature matrix"
 
 METADATA_COLS = [
     "subject_id", "group", "night_id", "event_idx",

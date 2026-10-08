@@ -58,7 +58,7 @@ except ImportError:
     )
 
 DEFAULT_INPUT = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\reduced feature matrix\arousal_features_reduced_scaled.csv"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\reduced feature matrix\arousal_features_reduced_scaled.csv"
 )
 
 DEFAULT_OUTPUT_DIR = Path(

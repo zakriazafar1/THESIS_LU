@@ -42,7 +42,7 @@ from sklearn.mixture import GaussianMixture
 # Standaardpaden 
 # ---------------------------------------------------------------------------
 BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
-DEFAULT_INPUT = BASE / "3. feature selection" / "reduced feature matrix" / "arousal_features_reduced_scaled.csv"
+DEFAULT_INPUT = BASE / "reduced feature matrix" / "arousal_features_reduced_scaled.csv"
 DEFAULT_OUTDIR = BASE / "4. clustering" / "2. GMM"
 
 # ---------------------------------------------------------------------------
