@@ -42,7 +42,7 @@ import pandas as pd
 
 EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
 
-INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_CLEAN.csv"
+INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_NO_NA.csv"
 OUTPUT_FILE = EVENTS_DIR / "arousal_feature_SUMMARY.csv"
 
 NON_FEATURE_COLUMNS = [

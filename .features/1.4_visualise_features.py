@@ -54,8 +54,8 @@ import matplotlib.pyplot as plt
 
 EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
 
-INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_CLEAN.csv"
-FALLBACK_FILE = EVENTS_DIR / "arousal_feature_matrix_ORIGIN.csv"
+INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_FILTERED.csv"
+FALLBACK_FILE = EVENTS_DIR / "arousal_feature_matrix_NO_NA.csv"
 
 OUT_EEG = EVENTS_DIR / "feature_distributions_eeg.png"
 OUT_OTHER = EVENTS_DIR / "feature_distributions_other.png"

@@ -1,29 +1,28 @@
 """
 =============================================================================
-3.1_corr_vif.py
+3.1_correlation.py
 
 Correlatie-check op de geschaalde arousal-featurematrix
-(output van 2.2_scale_features.py), als check tussen scaling en UMAP/HDBSCAN.
+(output van 2.2_scale_features.py). 
 
-Hoofdanalyse: Pearson op de geschaalde matrix
-  De geschaalde matrix (na transformatie + scaling) is precies wat UMAP/HDBSCAN
-  te zien krijgt. Pearson op die matrix vertelt dus welke features in de
-  afstandsberekening dubbel tellen. Pearson is ongevoelig voor lineaire
-  herschaling, dus Pearson op 'scaled' == Pearson op 'transformed'.
+Hoofdanalyse: Spearman op de geschaalde matrix
+  Spearman is rank-based: robuust tegen outliers en scheve verdelingen, en
+  vangt ook niet-lineaire (maar monotone) samenhang. Bovendien ongevoelig voor
+  elke monotone transformatie (log, scaling), dus de conclusie hangt niet af
+  van de gekozen transformatie.
 
-Controle: Spearman op dezelfde matrix
-  Spearman is rank-based en daarmee ongevoelig voor elke monotone transformatie
-  (log, Box-Cox, Yeo-Johnson, scaling). Spearman op 'scaled' == Spearman op
-  'raw', dus we hoeven de ruwe matrix niet apart in te laden.
-  Paren waar Pearson en Spearman sterk verschillen wijzen op outliers of
-  niet-lineaire (maar monotone) samenhang -> even visueel checken.
+Controle: Pearson op dezelfde matrix
+  Pearson meet lineaire samenhang op precies de waarden die de clustering
+  te zien krijgt (na transformatie + scaling). Paren waar Spearman en Pearson 
+  sterk verschillen wijzen op outliers of niet-lineaire (maar monotone) samenhang 
+  -> even visueel checken.
 
 Stappenplan:
   1. Geschaalde featurematrix inladen (arousal_feature_matrix_scaled.csv).
-  2. Pearson-correlatiematrix (hoofd) + Spearman-correlatiematrix (controle).
+  2. Spearman-correlatiematrix (hoofd) + Pearson-correlatiematrix (controle).
   3. Heatmaps van beide.
-  4. Sterk gecorreleerde paren (|r| > CORR_THRESHOLD, Pearson), met Spearman erbij.
-  5. Paren waar |r - rho| > DIFF_THRESHOLD (Pearson vs Spearman wijken af).
+  4. Sterk gecorreleerde paren (|rho| > CORR_THRESHOLD, Spearman), met Pearson erbij.
+  5. Paren waar |rho - r| > DIFF_THRESHOLD (Spearman vs Pearson wijken af).
   6. CORRELATIEGROEPEN: features die onderling allemaal |rho| >= GROUP_THRESHOLD
      hebben (hiërarchische clustering op 1 - |rho|, complete linkage). Uit elke
      groep kies je er één. Per feature: gemiddelde |rho| met de rest van de groep
@@ -32,8 +31,8 @@ Stappenplan:
      correleert (geen ketens A~B~C waarbij A en C nauwelijks samenhangen).
 
 Gebruik:
-  python 3.1_corr_vif.py
-  python 3.1_corr_vif.py --input pad/naar/andere_scaled.csv
+  python 3.1_correlation.py
+  python 3.1_correlation.py --input pad/naar/andere_scaled.csv
 =============================================================================
 """
 
@@ -56,7 +55,7 @@ INPUT_DIR = Path(
 )
 
 OUTPUT_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\corr_vif"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\correlation"
 )
 
 DEFAULT_INPUT = INPUT_DIR / "arousal_feature_matrix_scaled.csv"
@@ -67,12 +66,11 @@ METADATA_COLS = [
     "stage_rk",
 ]
 
-CORR_THRESHOLD = 0.80   # |r| boven deze grens = "sterk gecorreleerd"
-DIFF_THRESHOLD = 0.15   # |r - rho| boven deze grens = Pearson en Spearman wijken af
+CORR_THRESHOLD = 0.70   # |rho| (Spearman) boven deze grens = sterk gecorreleerd
+DIFF_THRESHOLD = 0.15   # |rho - r| boven deze grens = Spearman en Pearson wijken af
 
 GROUP_METHOD = "spearman"   # correlatie waarop de groepen gebaseerd zijn
-GROUP_THRESHOLD = 0.80      # binnen een groep: elk paar |rho| >= deze waarde
-
+GROUP_THRESHOLD = 0.70      # binnen een groep: elk paar |rho| >= deze waarde
 
 # =============================================================================
 # SECTIE 1 - INLADEN
@@ -158,9 +156,9 @@ def plot_corr_heatmap(corr: pd.DataFrame, out_path: Path, label: str) -> None:
     print(f"Heatmap opgeslagen: {out_path}")
 
 
-def upper_triangle_pairs(pearson: pd.DataFrame, spearman: pd.DataFrame) -> pd.DataFrame:
-    """Alle unieke feature-paren met Pearson r, Spearman rho en hun verschil."""
-    cols = pearson.columns
+def upper_triangle_pairs(spearman: pd.DataFrame, pearson: pd.DataFrame) -> pd.DataFrame:
+    """Alle unieke feature-paren met Spearman rho (hoofd), Pearson r (controle) en hun verschil."""
+    cols = spearman.columns
     rows = []
     for i in range(len(cols)):
         for j in range(i + 1, len(cols)):
@@ -169,24 +167,24 @@ def upper_triangle_pairs(pearson: pd.DataFrame, spearman: pd.DataFrame) -> pd.Da
             rows.append({
                 "feature_1": cols[i],
                 "feature_2": cols[j],
-                "pearson_r": r,
                 "spearman_rho": rho,
-                "diff_r_minus_rho": r - rho if pd.notna(r) and pd.notna(rho) else np.nan,
+                "pearson_r": r,
+                "diff_rho_minus_r": rho - r if pd.notna(r) and pd.notna(rho) else np.nan,
             })
     return pd.DataFrame(rows)
 
 
 def list_high_corr_pairs(pairs: pd.DataFrame, threshold: float) -> pd.DataFrame:
-    """Paren met |Pearson r| > threshold, gesorteerd van hoog naar laag."""
-    out = pairs[pairs["pearson_r"].abs() > threshold].copy()
-    out = out.reindex(out["pearson_r"].abs().sort_values(ascending=False).index)
+    """Paren met |Spearman rho| > threshold, gesorteerd van hoog naar laag."""
+    out = pairs[pairs["spearman_rho"].abs() > threshold].copy()
+    out = out.reindex(out["spearman_rho"].abs().sort_values(ascending=False).index)
     return out.round(4).reset_index(drop=True)
 
 
 def list_divergent_pairs(pairs: pd.DataFrame, threshold: float) -> pd.DataFrame:
-    """Paren waar Pearson en Spearman meer dan `threshold` van elkaar verschillen."""
-    out = pairs[pairs["diff_r_minus_rho"].abs() > threshold].copy()
-    out = out.reindex(out["diff_r_minus_rho"].abs().sort_values(ascending=False).index)
+    """Paren waar Spearman en Pearson meer dan `threshold` van elkaar verschillen."""
+    out = pairs[pairs["diff_rho_minus_r"].abs() > threshold].copy()
+    out = out.reindex(out["diff_rho_minus_r"].abs().sort_values(ascending=False).index)
     return out.round(4).reset_index(drop=True)
 
 
@@ -293,25 +291,25 @@ def main():
     print(f"\n{len(feature_cols)} features (metadata-kolommen uitgesloten): {feature_cols}")
 
     # --- Stap 2+3: correlatiematrices + heatmaps ---
-    pearson = compute_corr(df, feature_cols, "pearson")
     spearman = compute_corr(df, feature_cols, "spearman")
-    pearson.to_csv(OUTPUT_DIR / "pearson_corr_matrix.csv")
+    pearson = compute_corr(df, feature_cols, "pearson")
     spearman.to_csv(OUTPUT_DIR / "spearman_corr_matrix.csv")
-    plot_corr_heatmap(pearson, OUTPUT_DIR / "pearson_corr_heatmap.png", "Pearson r")
+    pearson.to_csv(OUTPUT_DIR / "pearson_corr_matrix.csv")
     plot_corr_heatmap(spearman, OUTPUT_DIR / "spearman_corr_heatmap.png", "Spearman rho")
+    plot_corr_heatmap(pearson, OUTPUT_DIR / "pearson_corr_heatmap.png", "Pearson r")
 
-    pairs = upper_triangle_pairs(pearson, spearman)
+    pairs = upper_triangle_pairs(spearman, pearson)
 
-    # --- Stap 4: sterk gecorreleerde paren (Pearson) ---
+    # --- Stap 4: sterk gecorreleerde paren (Spearman) ---
     high_corr = list_high_corr_pairs(pairs, CORR_THRESHOLD)
     high_corr.to_csv(OUTPUT_DIR / "high_corr_pairs.csv", index=False)
-    print(f"\nStap 4: {len(high_corr)} paar/paren met |r| > {CORR_THRESHOLD} (Pearson):")
+    print(f"\nStap 4: {len(high_corr)} paar/paren met |rho| > {CORR_THRESHOLD} (Spearman):")
     print(high_corr.to_string(index=False) if not high_corr.empty else "  (geen)")
 
-    # --- Stap 5: Pearson vs Spearman wijken af ---
+    # --- Stap 5: Spearman vs Pearson wijken af ---
     divergent = list_divergent_pairs(pairs, DIFF_THRESHOLD)
     divergent.to_csv(OUTPUT_DIR / "pearson_vs_spearman_divergent.csv", index=False)
-    print(f"\nStap 5: {len(divergent)} paar/paren met |r - rho| > {DIFF_THRESHOLD}:")
+    print(f"\nStap 5: {len(divergent)} paar/paren met |rho - r| > {DIFF_THRESHOLD}:")
     print(divergent.to_string(index=False) if not divergent.empty else "  (geen)")
 
     # --- Stap 6: correlatiegroepen ---
@@ -324,9 +322,9 @@ def main():
                     OUTPUT_DIR / "corr_groups_dendrogram.png")
 
     print(f"\nAlles opgeslagen in: {OUTPUT_DIR}")
-    print("  - pearson_corr_matrix.csv / pearson_corr_heatmap.png   <- hoofdanalyse")
-    print("  - spearman_corr_matrix.csv / spearman_corr_heatmap.png <- controle")
-    print("  - high_corr_pairs.csv                <- redundante paren (Pearson, met rho erbij)")
+    print("  - spearman_corr_matrix.csv / spearman_corr_heatmap.png <- hoofdanalyse")
+    print("  - pearson_corr_matrix.csv / pearson_corr_heatmap.png   <- controle")
+    print("  - high_corr_pairs.csv                <- redundante paren (Spearman, met r erbij)")
     print("  - pearson_vs_spearman_divergent.csv  <- paren om visueel te checken (scatterplot)")
     print("  - corr_groups.csv / corr_groups_dendrogram.png <- kies 1 feature per groep")
 

@@ -52,7 +52,7 @@ ORIGINAL_PATH = BASE / r"1. feature matrices\.feature info\arousal_feature_matri
 TRANSFORMED_PATH = BASE / r"2. preprocessing\transformed\arousal_feature_matrix_transformed.csv"
 SCALED_PATH = BASE / r"2. preprocessing\scaled\arousal_feature_matrix_scaled.csv"
 
-OUTPUT_DIR = BASE / r"3. feature selection\reduced"
+OUTPUT_DIR = BASE / r"3. feature selection\reduced feature matrix"
 
 METADATA_COLS = [
     "subject_id", "group", "night_id", "event_idx",
@@ -60,7 +60,7 @@ METADATA_COLS = [
     "stage_rk",
 ]
 
-# Kolommen die samen één event uniek identificeren (voor de consistentie-check).
+# Kolommen die samen één event uniek identificeren 
 EVENT_KEY = ["subject_id", "night_id", "event_idx"]
 
 KEEP_FEATURES = [
@@ -74,12 +74,9 @@ KEEP_FEATURES = [
     "motion_rms",
 ]
 
-# Moet gelijk zijn aan EXCLUDE_NIGHTS in 2.1_transform_features.py.
-EXCLUDE_NIGHTS: list[tuple[str, str]] = [
-    ("bnbd_nsr_17598", "T0_N1"),
-    ("bnbd_nsr_16379", "T0_N1"),
-    ("bnbd_nsr_19611", "T0_N1"),
-]
+# Moet gelijk zijn aan EXCLUDE_NIGHTS in 2.1_transform_features.py. 
+# LEEG = niet nodig.
+EXCLUDE_NIGHTS: list[tuple[str, str]] = []
 
 
 # =============================================================================

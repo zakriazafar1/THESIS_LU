@@ -40,7 +40,7 @@ import pandas as pd
 EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
 
 INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_ORIGIN.csv"
-OUTPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_CLEAN.csv"
+OUTPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_NO_NA.csv"
 OUTPUT_FILE_FILTERED = EVENTS_DIR / "arousal_feature_matrix_FILTERED.csv"
 
 # Duur-filter voor de _FILTERED versie (grenzen inclusief)

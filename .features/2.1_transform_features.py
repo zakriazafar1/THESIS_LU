@@ -61,17 +61,11 @@ METADATA_COLS = [
     "stage_rk"
 ]
 
-N_COLS_GRID = 5  # aantal subplots per rij in de histogram-grid
+N_COLS_GRID = 5 
 
-# Nachten uitgesloten wegens een night-level baseline/opname-artefact:
-# 90-100% van de events in deze nachten had extreem lage spectrale ratio's
-# (z < -3 op alle banden), gevonden met 3.1.1_scatter_divergent.py.
-# Andere nachten van dezelfde subjects waren wel in orde.
-EXCLUDE_NIGHTS: list[tuple[str, str]] = [
-    ("bnbd_nsr_17598", "T0_N1"),
-    ("bnbd_nsr_16379", "T0_N1"),
-    ("bnbd_nsr_19611", "T0_N1"),
-]
+# Nachten uitgesloten wegens een night-level baseline/opname-artefact. 
+# LEEG als niet nodig.
+EXCLUDE_NIGHTS: list[tuple[str, str]] = [ ]
 
 # Features die NIET getransformeerd worden (nauwelijks scheef; ln zou ze links-scheef maken).
 FORCE_UNTOUCHED_COLS: list[str] = ["motion_rms", "oxy_amp_ratio"]

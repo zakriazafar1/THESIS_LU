@@ -1,10 +1,11 @@
 """
 =============================================================================
-3.1.1_scatter_divergent.py
+3.2_check_corr.py
 
 Visuele check van de feature-paren waar Pearson en Spearman sterk van elkaar
-afwijken (output van 3.1_corr_vif.py: pearson_vs_spearman_divergent.csv).
+afwijken (output van 3.1_correlation.py: pearson_vs_spearman_divergent.csv).
 
+Spearman is de hoofdanalyse (3.1); dit script is een diagnostische check.
 Vraag: wordt de Pearson-r opgeblazen door losse eilandjes extreme events
 LINKSONDER (beide features zeer laag, z < TAIL_Z)? Op log-schaal betekent een
 z van -4 tot -8 een ratio van bijna 0: event-vermogen veel lager dan de
@@ -24,7 +25,7 @@ subject-specifiek)?
 
 Stappenplan:
   1. Geschaalde featurematrix + divergent-paren inladen.
-  2. Top-N paren (op |r - rho|) kiezen, of één paar via --pair.
+  2. Top-N paren (op |rho - r|) kiezen, of één paar via --pair.
   3. Per paar: statistiek + scatterplot (grid + losse PNG's).
   4. Staart-events wegschrijven + telling per subject/nacht.
 
@@ -53,7 +54,7 @@ SCALED_PATH = Path(
 )
 
 CORR_VIF_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\corr_vif"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\correlation"
 )
 DIVERGENT_PATH = CORR_VIF_DIR / "pearson_vs_spearman_divergent.csv"
 
@@ -102,9 +103,9 @@ def choose_pairs(args, df: pd.DataFrame) -> list[tuple[str, str]]:
         pairs = [tuple(args.pair)]
     else:
         div = read_csv_robust(args.divergent)
-        div = div.reindex(div["diff_r_minus_rho"].abs().sort_values(ascending=False).index)
+        div = div.reindex(div["diff_rho_minus_r"].abs().sort_values(ascending=False).index)
         pairs = list(zip(div["feature_1"], div["feature_2"]))[: args.top]
-        print(f"Top {len(pairs)} paren uit {args.divergent.name} (grootste |r - rho|).")
+        print(f"Top {len(pairs)} paren uit {args.divergent.name} (grootste |rho - r|).")
 
     missing = {f for p in pairs for f in p if f not in df.columns}
     if missing:
@@ -255,6 +256,10 @@ def main():
     df = read_csv_robust(args.input)
     print(f"Featurematrix geladen: {args.input}  shape={df.shape}")
     pairs = choose_pairs(args, df)
+    if not pairs:
+        print("Geen divergente paren (Spearman en Pearson wijken nergens > drempel af) -- "
+              "niets te plotten. De correlaties worden dus niet door een staart gedreven.")
+        return
 
     # --- Stap 3: statistiek + plots ---
     stats = [pair_stats(df, f1, f2, args.tail_z) for f1, f2 in pairs]
