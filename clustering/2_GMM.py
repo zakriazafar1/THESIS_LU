@@ -2,7 +2,7 @@
 2_GMM.py - Gaussian Mixture Models op de geschaalde arousal-features
 
 -------------------
-1. Leest de geschaalde feature-matrix (z-scores; ';'-gescheiden CSV).
+1. Leest de geschaalde feature-matrix (z-scores).
 2. Fit per k = 1..K_MAX een GMM met covariance_type="full" en n_init starts.
 3. Rapporteert per k:
      - log-likelihood, AIC, BIC
@@ -12,22 +12,21 @@
      - % events met max-posterior >= 0.80 ("zeker toegewezen")
      - kleinste componentgewicht (vangt 'mini-componenten' voor uitschieters)
      - per component: gewicht en gemiddelde posterior van de toegewezen events
-4. Slaat per event de labels + posteriors op voor k_BIC en k_ICL (input voor stap 3-6).
+4. Slaat per event de labels + posteriors op voor k_BIC en k_ICL.
 5. Maakt een figuur: BIC/ICL tegen k, en de zekerheid tegen k.
 
 Interpretatie
 ---------------------------------
-- BIC is geen toets: bij scheve data en grote n kiest BIC vaak k > 1 omdat meerdere
-  Gaussians één scheve wolk benaderen. Dáárom ICL + zekerheidsmaten ernaast, en
-  in stap 2 een vergelijking met een nulmodel (Gaussian copula).
+- BIC: bij scheve data en grote n kiest BIC vaak k > 1 omdat meerdere
+  Gaussians één scheve wolk benaderen. Dáárom ICL + zekerheidsmaten ernaast.
 - Lage gemiddelde max-posterior / hoge genormaliseerde entropie = componenten
-  overlappen sterk -> eerder een continuüm dan discrete subtypes.
+  overlappen sterk -> eerder een continuüm dan discrete clusters/subtypes.
 
 Gebruik
 -------
-    python 2_GMM.py                                   # standaardpaden (DEFAULT_INPUT / DEFAULT_OUTDIR)
-    python 2_GMM.py --input ander.csv --outdir andere_map
-    python 2_GMM.py --inspect          # alleen data-check, geen fits
+    python 2_GMM.py                     # standaardpaden (DEFAULT_INPUT / DEFAULT_OUTDIR)
+    python 2_GMM.py --input             ander.csv --outdir andere_map
+    python 2_GMM.py --inspect           # alleen data-check, geen fits
 """
 
 import argparse
@@ -40,11 +39,11 @@ import pandas as pd
 from sklearn.mixture import GaussianMixture
 
 # ---------------------------------------------------------------------------
-# Standaardpaden (overschrijfbaar met --input / --outdir)
+# Standaardpaden 
 # ---------------------------------------------------------------------------
 BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
-DEFAULT_INPUT = BASE / "3. feature selection" / "reduced" / "arousal_features_reduced_scaled.csv"
-DEFAULT_OUTDIR = BASE / "4. clustering" / "GMM"
+DEFAULT_INPUT = BASE / "3. feature selection" / "reduced feature matrix" / "arousal_features_reduced_scaled.csv"
+DEFAULT_OUTDIR = BASE / "4. clustering" / "2. GMM"
 
 # ---------------------------------------------------------------------------
 # Config
@@ -63,17 +62,15 @@ ID_COLS = ["subject_id", "group", "night_id", "event_idx", "stage_rk"]
 
 K_MAX = 10
 N_INIT = 20
-SEED = 42
+SEED = 2554542
 REG_COVAR = 1e-6      # sklearn-default; kleine ridge op de diagonaal voor numerieke stabiliteit
 MAX_ITER = 1500
 CERTAIN_THR = 0.85    # drempel voor "zeker toegewezen" event
-
 
 # ---------------------------------------------------------------------------
 # Data laden
 # ---------------------------------------------------------------------------
 def load_features(path: Path) -> pd.DataFrame:
-    """Leest ';'-CSV; valt terug op komma-decimalen (NL-locale) als nodig."""
     df = pd.read_csv(path, sep=";")
     if df[FEATURES].dtypes.eq(object).any():
         df = pd.read_csv(path, sep=";", decimal=",")
@@ -241,7 +238,7 @@ def main() -> None:
     res.round(4).to_csv(args.outdir / "gmm_model_selection.csv", sep=";", index=False)
     pd.DataFrame(comps).round(4).to_csv(args.outdir / "gmm_components.csv", sep=";", index=False)
 
-    # Per-event labels + posteriors voor k_BIC en k_ICL (input voor stabiliteit/interpretatie)
+    # Per-event labels + posteriors voor k_BIC en k_ICL (stabiliteit/interpretatie)
     id_cols = [c for c in ID_COLS if c in df.columns]
     for tag, k in {"bic": k_bic, "icl": k_icl}.items():
         resp = models[k].predict_proba(X)
@@ -252,8 +249,7 @@ def main() -> None:
             out[f"p_{c}"] = resp[:, c]
         out.round(4).to_csv(args.outdir / f"gmm_labels_k{k}_{tag}.csv", sep=";", index=False)
 
-    # Componentmiddens (op z-schaal) van de gekozen modellen — beschrijving op
-    # originele schaal volgt in stap 6.
+    # Componentmiddens (op z-schaal) van de gekozen modellen
     for tag, k in {"bic": k_bic, "icl": k_icl}.items():
         means = pd.DataFrame(models[k].means_, columns=FEATURES)
         means.insert(0, "weight_pct", models[k].weights_ * 100)

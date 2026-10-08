@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
 """
-3.4.4_hopkins_statistic_reduced.py
+1_hopkins.py
 
 Hopkins statistic on the REDUCED scaled feature matrix (8 features, one per
-correlation group) - the same matrix that 2_GMM.py and 3_nullmodel.py run on.
+correlation group).
 
 Tests whether the feature matrix has ANY inherent clustering tendency at all.
 If GMM/HDBSCAN keep returning one component/one blob, the Hopkins statistic
@@ -26,19 +25,16 @@ INTERPRETATION:
     H > ~0.75 -> evidence of real clustering tendency
     H ~ 0     -> rare in practice; regularly/evenly spaced data
 
-CAVEATS for the methods section:
-  - With 8 features the curse-of-dimensionality concern is much smaller than
-    with the full 27-feature set, so H is more interpretable here.
+CAVEAT: 
   - Uniform sampling within the bounding box is sensitive to outliers
     (a few extreme z-scores stretch the box and inflate u_i, pushing H up).
     Heavy-tailed or skewed data can therefore give H > 0.5 without real
-    clusters - which is exactly why 3_nullmodel.py (Gaussian-copula null)
-    is the stronger comparison. Use --trim-quantile to check robustness.
+    clusters. Use --trim-quantile to check robustness.
 
 Usage:
-    python 3.4.4_hopkins_statistic_reduced.py
-    python 3.4.4_hopkins_statistic_reduced.py --input "...\\arousal_feature_matrix_reduced_scaled.csv"
-    python 3.4.4_hopkins_statistic_reduced.py --trim-quantile 0.01
+    python 1_hopkins.py
+    python 1_hopkins.py --input "...\\arousal_feature_matrix_reduced_scaled.csv"
+    python 1_hopkins.py --trim-quantile 0.01
 
 Output (in --output-dir):
     hopkins_reduced_repeats.csv  - one row per repeat
@@ -62,11 +58,11 @@ except ImportError:
     )
 
 DEFAULT_INPUT = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\reduced\arousal_features_reduced_scaled.csv"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\reduced feature matrix\arousal_features_reduced_scaled.csv"
 )
 
 DEFAULT_OUTPUT_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\4. clustering\hopkins_reduced"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\4. clustering\1. hopkins_reduced"
 )
 
 OUTPUT_PREFIX = "hopkins_reduced"
@@ -78,8 +74,7 @@ DEFAULT_ID_COLUMNS = [
 
 EXPECTED_N_FEATURES = 8
 
-
-# ---- loading helpers (same conventions as the other pipeline scripts) ----------
+# ---- loading helpers ----------
 
 def detect_delimiter(path: Path, sample_lines: int = 5) -> str:
     import csv as csv_module
@@ -192,7 +187,7 @@ def main():
                         help="Fraction of events used as sample size m per repeat (default 0.05)")
     parser.add_argument("--min-sample-size", type=int, default=30)
     parser.add_argument("--max-sample-size", type=int, default=500)
-    parser.add_argument("--n-repeats", type=int, default=30)
+    parser.add_argument("--n-repeats", type=int, default=50)
     parser.add_argument("--trim-quantile", type=float, default=0.0,
                         help="If >0, draw synthetic points within the [q, 1-q] quantile range "
                              "per feature instead of min/max (robustness check against outliers)")

@@ -93,8 +93,8 @@ except ImportError:
 BASE = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2"
 )
-DEFAULT_INPUT = BASE / r"4. clustering\3. pca\whiten pca\pca_scores_5pc_whitened.csv"
-OUTPUT_DIR = BASE / r"4. clustering\4. pca hdbscan"
+DEFAULT_INPUT = BASE / r"4. clustering\3. pca\pca_scores_5pc_whitened.csv"
+OUTPUT_DIR = BASE / r"4. clustering\4. hdbscan\pca"
 
 # Full grid.
 DEFAULT_MIN_CLUSTER_SIZE = [65, 130, 260, 650]         
@@ -109,13 +109,13 @@ QUICK_SELECTION = ["eom"]
 # Sanity-checks voor "valide" configuraties.
 MIN_CLUSTERS = 1
 MAX_CLUSTERS = 5
-MAX_NOISE_FRACTION = 0.30
+MAX_NOISE_FRACTION = 0.5
 
 # Stabiliteit.
 TOP_N_STABILITY = 5
 N_RESAMPLES = 10
 SUBJECT_FRACTION = 0.80
-RANDOM_STATE = 42
+RANDOM_STATE = 2554542
 
 # Metadata-kolommen (nooit als feature gebruikt).
 METADATA_COLS = [
@@ -129,9 +129,9 @@ METADATA_COLS = [
 PC_LABELS = {
     "PC1": "PC1: overall spectral activation",
     "PC2": "PC2: event duration",
-    "PC3": "PC3: head movement",
-    "PC4": "PC4: PPG amplitude vs. duration",
-    "PC5": "PC5: fast (beta) vs. slow (delta/theta)",
+    "PC3": "PC3: head movement", 
+    "PC4": "PC4: contrast PPG vs. duration",
+    "PC5": "PC5: contrast slow vs. fast frequencies",
     # asnamen als HDBSCAN op de geschaalde features zelf draait
     "mean_delta_ratio": "Delta ratio (z)",
     "mean_theta_ratio": "Theta ratio (z)",

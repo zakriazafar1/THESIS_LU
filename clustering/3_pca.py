@@ -27,14 +27,25 @@ Wat het script geeft:
      + heatmap van de correlaties.
   3. Screeplot: eigenwaarden (met Kaiser-lijn = 1) en cumulatieve verklaarde
      variantie (met 90%/95%-lijnen), het gekozen aantal PC's gemarkeerd.
-  4. PC-scores van de behouden componenten (+ metadata), met of zonder
+  4. Controle: correlatiematrix van de PC-scores onderling (alle PC's).
+       - Pearson: hoort per constructie ~0 te zijn buiten de diagonaal (PCA maakt
+         de componenten lineair ongecorreleerd). Afwijkingen > ~1e-10 betekenen
+         dat er iets mis is (bijv. NaN-rijen, verkeerde centrering).
+       - Spearman: hoeft NIET 0 te zijn. Ongecorreleerd (lineair) is niet
+         hetzelfde als onafhankelijk; een Spearman-rho != 0 laat zien dat PC's
+         nog monotone, niet-lineaire samenhang hebben (bijv. door scheve
+         verdelingen of uitschieters).
+     Whitening verandert de correlaties niet (alleen de schaal per PC), dus
+     dit geldt voor whitened en unwhitened scores tegelijk.
+       -> pc_correlation_pearson.csv / pc_correlation_spearman.csv
+       -> pc_correlation_heatmap.png
+  5. PC-scores van de behouden componenten (+ metadata), met of zonder
      whitening, als CSV -> input voor HDBSCAN
 
 Gebruik:
-  python 3_pca.py                         # 5 PC's, zonder én met whitening
+  python 3_pca.py                         # DEFAULT PC's zonder én met whitening
   python 3_pca.py --whiten no             # alleen zonder whitening
   python 3_pca.py --whiten yes            # alleen met whitening
-  python 3_pca.py --n-components 4
   python 3_pca.py --n-components 0.95     # zoveel PC's als nodig voor 95%
 =============================================================================
 """
@@ -55,8 +66,8 @@ from sklearn.decomposition import PCA
 BASE = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2"
 )
-DEFAULT_INPUT = BASE / r"3. feature selection\reduced\arousal_features_reduced_scaled.csv"
-OUTPUT_DIR = BASE / r"4. clustering\pca"
+DEFAULT_INPUT = BASE / r"3. feature selection\reduced feature matrix\arousal_features_reduced_scaled.csv"
+OUTPUT_DIR = BASE / r"4. clustering\3. pca"
 
 METADATA_COLS = [
     "subject_id", "group", "night_id", "event_idx",
@@ -64,8 +75,8 @@ METADATA_COLS = [
     "stage_rk",
 ]
 
-N_COMPONENTS_DEFAULT = "5"   # int = aantal PC's, float < 1 = doel cumulatieve variantie
-RANDOM_STATE = 42
+N_COMPONENTS_DEFAULT = 0.90 # int = aantal PC's, float < 1 = doel cumulatieve variantie
+RANDOM_STATE = 2554542
 
 BAR_COLOR = "#4C78A8"
 REF_COLOR = "#8C8C8C"
@@ -217,7 +228,51 @@ def plot_loadings(corr: pd.DataFrame, ev: pd.DataFrame, k: int, out_path: Path) 
 
 
 # =============================================================================
-# SECTIE 4 — SCORES (met / zonder whitening)
+# SECTIE 4 — CONTROLE: CORRELATIE TUSSEN DE PC'S
+# =============================================================================
+
+def pc_correlations(X: pd.DataFrame, full: PCA) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Pearson- en Spearman-correlatiematrix van de scores van ALLE PC's.
+    Unwhitened scores gebruikt; whitening verandert alleen de schaal per PC,
+    dus de correlaties zijn met en zonder whitening identiek.
+    """
+    scores = compute_scores(X, full, full.n_components_, whiten=False)
+    return scores.corr(method="pearson"), scores.corr(method="spearman")
+
+
+def max_offdiag(c: pd.DataFrame) -> tuple[float, str]:
+    """Grootste |r| buiten de diagonaal + welk paar."""
+    a = c.abs().to_numpy().copy()
+    np.fill_diagonal(a, 0)
+    i, j = np.unravel_index(np.argmax(a), a.shape)
+    return float(a[i, j]), f"{c.index[i]} - {c.columns[j]}"
+
+
+def plot_pc_correlations(pear: pd.DataFrame, spear: pd.DataFrame, k: int, out_path: Path) -> None:
+    """Twee heatmaps naast elkaar: Pearson (moet ~0 zijn) en Spearman."""
+    n = len(pear)
+    fig, axes = plt.subplots(1, 2, figsize=(2 * (0.75 * n + 2.5), 0.65 * n + 2))
+    for ax, c, title in zip(axes, (pear, spear),
+                            ("Pearson r (per constructie ~0)", "Spearman rho (monotone samenhang)")):
+        mask = np.triu(np.ones_like(c, dtype=bool), k=1)   # alleen onderste driehoek + diagonaal
+        sns.heatmap(c.round(3), mask=mask, cmap="RdBu_r", vmin=-1, vmax=1, center=0,
+                    annot=True, fmt=".2f", annot_kws={"size": 8}, square=True,
+                    linewidths=0.5, linecolor="white", cbar_kws={"shrink": 0.8}, ax=ax)
+        ax.set_title(title, fontsize=10)
+        ax.tick_params(labelsize=8)
+        # markeer de behouden PC's
+        ax.axhline(k, color=KEEP_COLOR, lw=1.5)
+        ax.axvline(k, color=KEEP_COLOR, lw=1.5)
+    fig.suptitle(f"Correlatie tussen PC-scores (rode lijnen: grens {k} behouden PC's)", fontsize=11)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"PC-correlatie-heatmap opgeslagen: {out_path}")
+
+
+# =============================================================================
+# SECTIE 5 — SCORES (met / zonder whitening)
 # =============================================================================
 
 def compute_scores(X: pd.DataFrame, full: PCA, k: int, whiten: bool) -> pd.DataFrame:
@@ -280,7 +335,23 @@ def main():
     plot_scree(ev, k, out_dir / "pca_screeplot.png")
     plot_loadings(corr, ev, k, out_dir / "pca_loadings_heatmap.png")
 
-    # --- Stap 4: scores ---
+    # --- Stap 4: controle correlatie tussen PC's ---
+    pear, spear = pc_correlations(X, full)
+    pear.to_csv(out_dir / "pc_correlation_pearson.csv")
+    spear.to_csv(out_dir / "pc_correlation_spearman.csv")
+    plot_pc_correlations(pear, spear, k, out_dir / "pc_correlation_heatmap.png")
+
+    p_max, p_pair = max_offdiag(pear)
+    s_max, s_pair = max_offdiag(spear)
+    print("\nControle: correlatie tussen PC-scores (buiten de diagonaal)")
+    print(f"  Pearson  max |r|   = {p_max:.2e}  ({p_pair})  "
+          f"-> {'OK, ongecorreleerd' if p_max < 1e-8 else '[LET OP] niet ~0, controleer de input'}")
+    print(f"  Spearman max |rho| = {s_max:.3f}  ({s_pair})  "
+          "-> niet-lineaire/monotone samenhang die PCA niet weghaalt")
+    print("\nSpearman rho tussen PC's:")
+    print(spear.round(2).to_string())
+
+    # --- Stap 5: scores ---
     modes = {"no": [False], "yes": [True], "both": [False, True]}[args.whiten]
     print()
     for w in modes:
@@ -296,6 +367,8 @@ def main():
     print("  - explained_variance.csv               <- eigenwaarde / % / cumulatief % per PC")
     print("  - pca_loadings.csv                     <- eigenvectoren")
     print("  - pca_loading_correlations.csv         <- correlatie feature <-> PC (interpretatie)")
+    print("  - pc_correlation_pearson.csv / _spearman.csv / pc_correlation_heatmap.png")
+    print("                                         <- controle: zijn de PC's ongecorreleerd?")
     print("  - pca_screeplot.png / pca_loadings_heatmap.png")
     print("  - pca_scores_*pc_(un)whitened.csv      <- input voor HDBSCAN")
 
