@@ -67,7 +67,7 @@ mne.set_log_level("ERROR")
 
 RAW_ROOT   = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
 GROUPS     = ["NSR", "Prezens", "SAV"]
-EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info\test")
+EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
 
 TARGET_SFREQ = 128.0          
 NOTCH_HZ = 50.0
