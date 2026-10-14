@@ -38,8 +38,12 @@ import pandas as pd
 # ============================================================
 BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
 
-FEATURES_CSV      = BASE / "reduced feature matrix" / "arousal_features_reduced_scaled.csv"
+# FEATURES_CSV = BASE / "1. feature matrices" / ".feature info" / "arousal_feature_matrix_ORIGIN_clipped.csv"
+# OUT_DIR      = BASE / ".data descriptives" / "full data" / "nights overview" 
+
+FEATURES_CSV      = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"
 ORIG_FEATURES_CSV = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"  # ongeschaald (duur in s)
+OUT_DIR = BASE / ".data descriptives" / "reduced data" / "nights overview"
 
 RAW_ROOT = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
 GROUPS   = ["NSR"]

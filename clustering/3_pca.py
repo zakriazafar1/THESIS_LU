@@ -2,65 +2,73 @@
 =============================================================================
 3_pca.py
 
-PCA op de gereduceerde, geschaalde arousal-featurematrix
-(output van 3.3_reduce_features.py: arousal_features_reduced_scaled.csv).
+PCA on the reduced, scaled arousal feature matrix
+(output of 3.3_reduce_features.py: arousal_features_reduced_scaled.csv).
 
-Doel: de correlaties tussen de features (vooral het spectrale blok
-theta/alpha/sigma) opheffen vóór HDBSCAN.
-  - PCA draait het assenstelsel zodat de componenten ongecorreleerd zijn.
-    Een draaiing verandert geen afstanden; het "dubbel tellen" van het
-    spectrale blok zit daarna in PC1 (grootste variantie).
-  - Met --whiten krijgt elke behouden PC variantie 1, zodat elke onafhankelijke
-    dimensie even zwaar meetelt in de afstanden (= Mahalanobis-afstand in de
-    gereduceerde ruimte). Alleen verantwoord als de ruis-PC's met hele kleine
-    eigenwaarde eerst zijn weggelaten (--n-components), anders worden die
-    enorm opgeblazen.
+Aim: remove the correlations between the features (especially the spectral
+block theta/alpha/sigma) before HDBSCAN.
+  - PCA rotates the coordinate system so that the components are
+    uncorrelated. A rotation does not change distances; the "double counting"
+    of the spectral block then sits in PC1 (largest variance).
+  - With --whiten every retained PC gets variance 1, so every independent
+    dimension counts equally in the distances (= Mahalanobis distance in the
+    reduced space). Only defensible once the noise PCs with very small
+    eigenvalues have been dropped (--n-components), otherwise those are
+    inflated enormously.
 
-Wat het script geeft:
-  1. Alle PC's (ook de niet-behouden): eigenwaarde, % verklaarde variantie,
-     cumulatief %  -> explained_variance.csv
-  2. Loadings van alle PC's:
-       - pca_loadings.csv          (eigenvectoren, gewicht per feature)
-       - pca_loading_correlations.csv (correlatie feature <-> PC, = loading *
-         sqrt(eigenwaarde); makkelijker te interpreteren: "hoe sterk hangt deze
-         feature samen met deze PC")
-     + heatmap van de correlaties.
-  3. Screeplot: eigenwaarden (met Kaiser-lijn = 1) en cumulatieve verklaarde
-     variantie (met 90%/95%-lijnen), het gekozen aantal PC's gemarkeerd.
-  4. Controle: correlatiematrix van de PC-scores onderling (alle PC's).
-       - Pearson: hoort per constructie ~0 te zijn buiten de diagonaal (PCA maakt
-         de componenten lineair ongecorreleerd). Afwijkingen > ~1e-10 betekenen
-         dat er iets mis is (bijv. NaN-rijen, verkeerde centrering).
-       - Spearman: hoeft NIET 0 te zijn. Ongecorreleerd (lineair) is niet
-         hetzelfde als onafhankelijk; een Spearman-rho != 0 laat zien dat PC's
-         nog monotone, niet-lineaire samenhang hebben (bijv. door scheve
-         verdelingen of uitschieters).
-     Whitening verandert de correlaties niet (alleen de schaal per PC), dus
-     dit geldt voor whitened en unwhitened scores tegelijk.
+What the script produces:
+  1. All PCs (including those not retained): eigenvalue, % explained
+     variance, cumulative %  -> explained_variance.csv
+  2. Loadings of all PCs:
+       - pca_loadings.csv               (eigenvectors, weight per feature)
+       - pca_loading_correlations.csv   (correlation feature <-> PC = loading *
+         sqrt(eigenvalue); easier to interpret: "how strongly is this feature
+         related to this PC")
+     + heatmap of the correlations.
+  3. Cumulative explained variance plot (with a 95% reference line), the
+     chosen number of PCs marked.
+  4. Check: correlation matrix of the PC scores (all PCs).
+       - Pearson: should be ~0 off the diagonal by construction (PCA makes the
+         components linearly uncorrelated). Deviations > ~1e-10 mean something
+         is wrong (e.g. NaN rows, wrong centring).
+       - Spearman: does NOT have to be 0. Uncorrelated (linearly) is not the
+         same as independent; a Spearman rho != 0 shows that PCs still share
+         monotonic, non-linear association (e.g. due to skewed distributions
+         or outliers).
+     Whitening does not change the correlations (only the scale per PC), so
+     this applies to whitened and unwhitened scores alike.
        -> pc_correlation_pearson.csv / pc_correlation_spearman.csv
        -> pc_correlation_heatmap.png
-  5. PC-scores van de behouden componenten (+ metadata), met of zonder
-     whitening, als CSV -> input voor HDBSCAN
+  5. PC scores of the retained components (+ metadata), with or without
+     whitening, as CSV -> input for HDBSCAN.
 
-Gebruik:
-  python 3_pca.py                         # DEFAULT PC's zonder én met whitening
-  python 3_pca.py --whiten no             # alleen zonder whitening
-  python 3_pca.py --whiten yes            # alleen met whitening
-  python 3_pca.py --n-components 0.95     # zoveel PC's als nodig voor 95%
+Figures follow APA 7 style: no embedded titles (number + title go above the
+figure in the manuscript), sans-serif font, sentence-case axis labels,
+readable feature names, statistical symbols in italics, correlations without
+leading zero, panel letters in multi-panel figures, no chart junk.
+
+Usage:
+  python 3_pca.py                         # DEFAULT PCs, without and with whitening
+  python 3_pca.py --whiten no             # only without whitening
+  python 3_pca.py --whiten yes            # only with whitening
+  python 3_pca.py --n-components 0.95     # as many PCs as needed for 95%
 =============================================================================
 """
 
 import argparse
+import re
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import matplotlib as mpl
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import seaborn as sns
 from sklearn.decomposition import PCA
 
 # =============================================================================
-# CONFIGURATIE
+# CONFIGURATION
 # =============================================================================
 
 BASE = Path(
@@ -75,22 +83,99 @@ METADATA_COLS = [
     "stage_rk",
 ]
 
-N_COMPONENTS_DEFAULT = 0.90 # int = aantal PC's, float < 1 = doel cumulatieve variantie
+N_COMPONENTS_DEFAULT = 0.945  # int = number of PCs, float < 1 = target cumulative variance
 RANDOM_STATE = 2554542
 
-BAR_COLOR = "#4C78A8"
-REF_COLOR = "#8C8C8C"
+FIG_DPI = 300
+
+# =============================================================================
+# APA 7 FIGURE STYLE
+# =============================================================================
+
+TEXT_COLOR = "#000000"
+BAR_COLOR = "#2a78d6"          # retained components
+BAR_COLOR_DROPPED = "#C9D9EF"  # components not retained
+LINE_COLOR = "#1F3F66"
+REF_COLOR = "#7F7F7F"
 KEEP_COLOR = "#C0392B"
+
+mpl.rcParams.update({
+    "font.family": "sans-serif",
+    "font.sans-serif": ["Arial", "Helvetica", "Liberation Sans", "DejaVu Sans"],
+    "font.size": 10,
+    "axes.labelsize": 10,
+    "xtick.labelsize": 9,
+    "ytick.labelsize": 9,
+    "legend.fontsize": 8,
+    "axes.edgecolor": TEXT_COLOR,
+    "axes.labelcolor": TEXT_COLOR,
+    "xtick.color": TEXT_COLOR,
+    "ytick.color": TEXT_COLOR,
+    "axes.linewidth": 0.8,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "figure.facecolor": "white",
+    "axes.facecolor": "white",
+    "savefig.facecolor": "white",
+    "mathtext.default": "it",
+    "pdf.fonttype": 42,
+    "svg.fonttype": "none",
+})
+
+BAND_NAMES = {"delta": "Delta", "theta": "Theta", "alpha": "Alpha",
+              "sigma": "Sigma", "beta": "Beta"}
+SPECIAL_LABELS = {
+    "duration_sec": "Duration",
+    "oxy_amp_ratio": "PPG amplitude ratio",
+    "motion_rms": "Head movement RMS",
+}
+
+
+def pretty_label(name: str) -> str:
+    """
+    Readable feature name for figures, e.g.
+      L_delta_peak_ratio -> 'Delta peak ratio (L)'
+      mean_alpha_ratio   -> 'Alpha ratio (mean)'
+    """
+    if name in SPECIAL_LABELS:
+        return SPECIAL_LABELS[name]
+    m = re.fullmatch(r"(L|R|mean)_(delta|theta|alpha|sigma|beta)_(peak_)?ratio", name)
+    if m:
+        side, band, peak = m.groups()
+        kind = "peak ratio" if peak else "ratio"
+        return f"{BAND_NAMES[band]} {kind} ({side})"
+    return name.replace("_", " ")
+
+
+def apa_corr(v: float) -> str:
+    """APA format for correlations: two decimals, no leading zero (.85, −.32)."""
+    if pd.isna(v):
+        return ""
+    v = 0.0 if abs(v) < 0.005 else v          # avoid '−.00' for values that round to 0
+    s = f"{v:.2f}"
+    s = s.replace("0.", ".", 1) if abs(v) < 1 else s
+    return s.replace("-", "\u2212")
+
+
+def save_figure(fig, out_path: Path) -> None:
+    fig.savefig(out_path, dpi=FIG_DPI, bbox_inches="tight")
+    fig.savefig(out_path.with_suffix(".pdf"), bbox_inches="tight")
+    plt.close(fig)
+
+
+def panel_letter(ax, letter: str, x: float = -0.12) -> None:
+    ax.text(x, 1.04, letter, transform=ax.transAxes, fontsize=12,
+            fontweight="bold", va="bottom", color=TEXT_COLOR)
 
 
 # =============================================================================
-# SECTIE 1 — INLADEN
+# SECTION 1 — LOADING
 # =============================================================================
 
 def read_csv_robust(path: Path) -> pd.DataFrame:
-    """CSV met automatische separator-detectie en fallback naar decimal=','."""
+    """CSV with automatic delimiter detection and fallback to decimal=','."""
     if not path.exists():
-        raise FileNotFoundError(f"{path} bestaat niet -- run eerst 3.3_reduce_features.py.")
+        raise FileNotFoundError(f"{path} does not exist -- run 3.3_reduce_features.py first.")
     df = pd.read_csv(path, sep=None, engine="python")
     text_cols = {"subject_id", "group", "night_id"}
     check = [c for c in df.columns if c not in text_cols]
@@ -99,37 +184,37 @@ def read_csv_robust(path: Path) -> pd.DataFrame:
         df2 = pd.read_csv(path, sep=None, engine="python", decimal=",")
         n_bad2 = sum(not pd.api.types.is_numeric_dtype(df2[c]) for c in check if c in df2.columns)
         if n_bad2 < n_bad:
-            print("[LET OP] decimaal-komma gedetecteerd, opnieuw ingelezen met decimal=','.")
+            print("[NOTE] decimal comma detected, re-read with decimal=','.")
             df = df2
-    print(f"Geladen: {path}  shape={df.shape}")
+    print(f"Loaded: {path}  shape={df.shape}")
     return df
 
 
 def parse_n_components(value: str, n_features: int) -> int | float:
-    """'5' -> 5 PC's; '0.95' -> doel cumulatieve variantie."""
+    """'5' -> 5 PCs; '0.95' -> target cumulative variance."""
     v = float(value)
     if 0 < v < 1:
         return v
     k = int(v)
     if not 1 <= k <= n_features:
-        raise ValueError(f"--n-components moet tussen 1 en {n_features} liggen (of 0-1 als fractie).")
+        raise ValueError(f"--n-components must be between 1 and {n_features} (or 0-1 as a fraction).")
     return k
 
 
 # =============================================================================
-# SECTIE 2 — PCA OP ALLE COMPONENTEN (eigenwaarden + loadings)
+# SECTION 2 — PCA ON ALL COMPONENTS (eigenvalues + loadings)
 # =============================================================================
 
 def fit_full_pca(X: pd.DataFrame) -> tuple[PCA, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    PCA met alle componenten. Geeft het model + tabellen voor verklaarde variantie,
-    loadings (eigenvectoren) en loading-correlaties.
-    Tekens van PC's zijn willekeurig; ze worden zo gezet dat de grootste
-    absolute loading per PC positief is (alleen voor leesbaarheid).
+    PCA with all components. Returns the model + tables for explained variance,
+    loadings (eigenvectors) and loading correlations.
+    The signs of PCs are arbitrary; they are set so that the largest absolute
+    loading per PC is positive (for readability only).
     """
     pca = PCA(random_state=RANDOM_STATE).fit(X)
 
-    # tekens vastzetten
+    # fix signs
     for i in range(pca.n_components_):
         if pca.components_[i, np.argmax(np.abs(pca.components_[i]))] < 0:
             pca.components_[i] *= -1
@@ -143,7 +228,7 @@ def fit_full_pca(X: pd.DataFrame) -> tuple[PCA, pd.DataFrame, pd.DataFrame, pd.D
     }).round(4)
 
     loadings = pd.DataFrame(pca.components_.T, index=X.columns, columns=pcs).round(4)
-    # correlatie feature <-> PC = eigenvector * sqrt(eigenwaarde) / SD(feature)
+    # correlation feature <-> PC = eigenvector * sqrt(eigenvalue) / SD(feature)
     sd = X.std(ddof=1).to_numpy()[:, None]
     corr = pd.DataFrame(pca.components_.T * np.sqrt(pca.explained_variance_)[None, :] / sd,
                         index=X.columns, columns=pcs).round(4)
@@ -151,98 +236,104 @@ def fit_full_pca(X: pd.DataFrame) -> tuple[PCA, pd.DataFrame, pd.DataFrame, pd.D
 
 
 def resolve_k(ev: pd.DataFrame, n_components: int | float) -> int:
-    """Aantal te behouden PC's; bij een fractie: kleinste k die die variantie haalt."""
+    """Number of PCs to retain; for a fraction: the smallest k that reaches that variance."""
     if isinstance(n_components, float):
         return int(np.searchsorted(ev["cum_pct_variance"].to_numpy(), 100 * n_components - 1e-9) + 1)
     return n_components
 
 
 # =============================================================================
-# SECTIE 3 — PLOTS
+# SECTION 3 — PLOTS
 # =============================================================================
 
 def plot_scree(ev: pd.DataFrame, k: int, out_path: Path) -> None:
     """
-    Twee panelen (geen dubbele y-as):
-      links  eigenwaarde per PC + Kaiser-lijn (eigenwaarde = 1)
-      rechts cumulatieve verklaarde variantie + 90%/95%-lijnen
-    Het gekozen aantal PC's is in beide gemarkeerd.
+    Cumulative explained variance per number of PCs, with a dotted 95%
+    reference line; the chosen number of PCs is marked.
     """
     x = np.arange(1, len(ev) + 1)
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+    xlabels = [str(i) for i in x]
+    fig, ax2 = plt.subplots(figsize=(6, 4.2))
 
-    colors = [BAR_COLOR if i < k else "#C9D6E6" for i in range(len(ev))]
-    ax1.bar(x, ev["eigenvalue"], color=colors, width=0.6, zorder=2)
-    ax1.plot(x, ev["eigenvalue"], color="#2F4B6E", lw=1.5, marker="o", ms=5, zorder=3)
-    ax1.axhline(1, color=REF_COLOR, ls="--", lw=1, zorder=1)
-    ax1.text(len(ev) + 0.4, 1, "Kaiser (= 1)", va="bottom", ha="right", fontsize=8, color="#555555")
-    for xi, val, pct in zip(x, ev["eigenvalue"], ev["pct_variance"]):
-        ax1.text(xi, val, f"{pct:.0f}%", ha="center", va="bottom", fontsize=7, color="#333333")
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(ev["component"], fontsize=8)
-    ax1.set_ylabel("Eigenwaarde")
-    ax1.set_title("Screeplot", fontsize=11)
-
-    ax2.plot(x, ev["cum_pct_variance"], color="#2F4B6E", lw=2, marker="o", ms=6, zorder=3)
-    for lvl in (90, 95):
+    cum = ev["cum_pct_variance"].to_numpy()
+    ax2.plot(x, cum, color=LINE_COLOR, lw=1.8, marker="o", ms=5, zorder=3)
+    for lvl in (95,):
         ax2.axhline(lvl, color=REF_COLOR, ls=":", lw=1, zorder=1)
-        ax2.text(0.6, lvl, f"{lvl}%", va="bottom", fontsize=8, color="#555555")
-    ax2.scatter([k], [ev["cum_pct_variance"].iloc[k - 1]], s=90, facecolor="none",
-                edgecolor=KEEP_COLOR, lw=2, zorder=4)
-    ax2.annotate(f"{k} PC's: {ev['cum_pct_variance'].iloc[k - 1]:.1f}%",
-                 (k, ev["cum_pct_variance"].iloc[k - 1]), textcoords="offset points",
-                 xytext=(8, -16), fontsize=9, color="#333333")
+        ax2.text(len(ev) + 0.45, lvl, f"{lvl}%", va="center", ha="left", fontsize=8,
+                 color=REF_COLOR)
+    ax2.scatter([k], [cum[k - 1]], s=110, facecolor="none", edgecolor=KEEP_COLOR, lw=1.8, zorder=4)
+    ax2.annotate(f"{k} components: {cum[k - 1]:.1f}%", (k, cum[k - 1]),
+                 textcoords="offset points", xytext=(12, -42), fontsize=9, color=TEXT_COLOR,
+                 bbox=dict(boxstyle="square,pad=0.15", fc="white", ec="none"),
+                 arrowprops=dict(arrowstyle="-", color=KEEP_COLOR, lw=0.8, shrinkA=0, shrinkB=6))
     ax2.set_xticks(x)
-    ax2.set_xticklabels(ev["component"], fontsize=8)
+    ax2.set_xticklabels(xlabels)
+    ax2.set_xlim(0.5, len(ev) + 0.5)
     ax2.set_ylim(0, 102)
-    ax2.set_ylabel("Cumulatieve verklaarde variantie (%)")
-    ax2.set_title("Cumulatieve verklaarde variantie", fontsize=11)
-
-    for ax in (ax1, ax2):
-        ax.grid(axis="y", color="#E5E5E5", lw=0.8, zorder=0)
-        ax.spines[["top", "right"]].set_visible(False)
-        ax.axvline(k + 0.5, color=KEEP_COLOR, ls="--", lw=1, alpha=0.7, zorder=1)
+    ax2.set_xlabel("Number of principal components")
+    ax2.set_ylabel("Cumulative explained variance (%)")
 
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    print(f"Screeplot opgeslagen: {out_path}")
+    save_figure(fig, out_path)
+    print(f"Scree plot saved: {out_path} (+ .pdf)")
 
 
 def plot_loadings(corr: pd.DataFrame, ev: pd.DataFrame, k: int, out_path: Path) -> None:
-    """Heatmap van de feature-PC-correlaties voor alle PC's; behouden PC's gemarkeerd."""
-    labels = [f"{c}\n{p:.0f}%" for c, p in zip(ev["component"], ev["pct_variance"])]
+    """
+    Heatmap of the feature-PC correlations for all PCs. The retained PCs are
+    separated from the others by a red line and labelled above the heatmap.
+    """
+    data = corr.copy()
+    data.index = [pretty_label(c) for c in data.index]
+    xlabels = [f"{c}\n{p:.1f}%" for c, p in zip(ev["component"], ev["pct_variance"])]
+    annot = data.map(apa_corr)
+
     fig, ax = plt.subplots(figsize=(0.95 * corr.shape[1] + 3, 0.5 * corr.shape[0] + 2))
-    sns.heatmap(corr, cmap="RdBu_r", vmin=-1, vmax=1, center=0, annot=True, fmt=".2f",
-                annot_kws={"size": 7}, linewidths=0.5, linecolor="white",
-                cbar_kws={"label": "correlatie feature – PC"}, ax=ax)
-    ax.set_xticklabels(labels, fontsize=8, rotation=0)
-    ax.tick_params(axis="y", labelsize=8)
-    ax.axvline(k, color=KEEP_COLOR, lw=2)
-    ax.set_title(f"PCA-loadings (correlatie met PC) -- links van de rode lijn: {k} behouden PC's",
-                 fontsize=10)
+    sns.heatmap(data, cmap="RdBu_r", vmin=-1, vmax=1, center=0, annot=annot, fmt="",
+                annot_kws={"size": 8}, linewidths=0.5, linecolor="white",
+                cbar_kws={"label": "Correlation with component ($r$)", "shrink": 0.8,
+                          "ticks": [-1, -0.5, 0, 0.5, 1]}, ax=ax)
+    cbar = ax.collections[0].colorbar
+    cbar.set_ticklabels(["\u22121", "\u2212.50", "0", ".50", "1"])
+    cbar.outline.set_visible(False)
+    cbar.ax.tick_params(labelsize=8)
+
+    ax.set_xticklabels(xlabels, rotation=0, fontsize=8)
+    ax.tick_params(axis="both", length=0)
+    ax.tick_params(axis="y", labelsize=9, rotation=0)
+    ax.set_xlabel("Principal Components (with % explained variance)")
+    ax.set_ylabel("")
+    for s in ax.spines.values():
+        s.set_visible(False)
+
+    n_pc = corr.shape[1]
+    if k < n_pc:
+        ax.axvline(k, color=KEEP_COLOR, lw=2)
+        ax.text(k / 2, -0.25, "Retained", ha="center", va="bottom", fontsize=9,
+                color=TEXT_COLOR, transform=ax.transData)
+        ax.text(k + (n_pc - k) / 2, -0.25, "Not retained", ha="center", va="bottom",
+                fontsize=9, color=REF_COLOR, transform=ax.transData)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    print(f"Loadings-heatmap opgeslagen: {out_path}")
+    save_figure(fig, out_path)
+    print(f"Loadings heatmap saved: {out_path} (+ .pdf)")
 
 
 # =============================================================================
-# SECTIE 4 — CONTROLE: CORRELATIE TUSSEN DE PC'S
+# SECTION 4 — CHECK: CORRELATION BETWEEN THE PCs
 # =============================================================================
 
 def pc_correlations(X: pd.DataFrame, full: PCA) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Pearson- en Spearman-correlatiematrix van de scores van ALLE PC's.
-    Unwhitened scores gebruikt; whitening verandert alleen de schaal per PC,
-    dus de correlaties zijn met en zonder whitening identiek.
+    Pearson and Spearman correlation matrix of the scores of ALL PCs.
+    Unwhitened scores are used; whitening only changes the scale per PC,
+    so the correlations are identical with and without whitening.
     """
     scores = compute_scores(X, full, full.n_components_, whiten=False)
     return scores.corr(method="pearson"), scores.corr(method="spearman")
 
 
 def max_offdiag(c: pd.DataFrame) -> tuple[float, str]:
-    """Grootste |r| buiten de diagonaal + welk paar."""
+    """Largest |r| off the diagonal + which pair."""
     a = c.abs().to_numpy().copy()
     np.fill_diagonal(a, 0)
     i, j = np.unravel_index(np.argmax(a), a.shape)
@@ -250,36 +341,56 @@ def max_offdiag(c: pd.DataFrame) -> tuple[float, str]:
 
 
 def plot_pc_correlations(pear: pd.DataFrame, spear: pd.DataFrame, k: int, out_path: Path) -> None:
-    """Twee heatmaps naast elkaar: Pearson (moet ~0 zijn) en Spearman."""
+    """
+    Two heatmaps side by side: A = Pearson (should be ~0), B = Spearman.
+    Lower triangle including the diagonal (rows and columns both PC1..PCn);
+    red lines across the whole plot mark the boundary after the last
+    retained PC on both axes.
+    """
     n = len(pear)
     fig, axes = plt.subplots(1, 2, figsize=(2 * (0.75 * n + 2.5), 0.65 * n + 2))
-    for ax, c, title in zip(axes, (pear, spear),
-                            ("Pearson r (per constructie ~0)", "Spearman rho (monotone samenhang)")):
-        mask = np.triu(np.ones_like(c, dtype=bool), k=1)   # alleen onderste driehoek + diagonaal
-        sns.heatmap(c.round(3), mask=mask, cmap="RdBu_r", vmin=-1, vmax=1, center=0,
-                    annot=True, fmt=".2f", annot_kws={"size": 8}, square=True,
-                    linewidths=0.5, linecolor="white", cbar_kws={"shrink": 0.8}, ax=ax)
-        ax.set_title(title, fontsize=10)
-        ax.tick_params(labelsize=8)
-        # markeer de behouden PC's
-        ax.axhline(k, color=KEEP_COLOR, lw=1.5)
-        ax.axvline(k, color=KEEP_COLOR, lw=1.5)
-    fig.suptitle(f"Correlatie tussen PC-scores (rode lijnen: grens {k} behouden PC's)", fontsize=11)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    print(f"PC-correlatie-heatmap opgeslagen: {out_path}")
+    cbar_labels = ("Pearson's $r$", "Spearman's $\\rho$")
+    for ax, c, lab, letter in zip(axes, (pear, spear), cbar_labels, "AB"):
+        m = np.triu(np.ones_like(c, dtype=bool), k=1)   # lower triangle + diagonal
+        data = c
+        sns.heatmap(data, mask=m, cmap="RdBu_r", vmin=-1, vmax=1, center=0,
+                    annot=data.map(apa_corr), fmt="", annot_kws={"size": 8}, square=True,
+                    linewidths=0.5, linecolor="white",
+                    cbar_kws={"shrink": 0.75, "label": lab, "ticks": [-1, -0.5, 0, 0.5, 1]},
+                    ax=ax)
+        cbar = ax.collections[0].colorbar
+        cbar.set_ticklabels(["\u22121", "\u2212.50", "0", ".50", "1"])
+        cbar.outline.set_visible(False)
+        cbar.ax.tick_params(labelsize=8)
+        ax.tick_params(axis="both", length=0, labelsize=9)
+        ax.tick_params(axis="y", rotation=0)
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+        for s in ax.spines.values():
+            s.set_visible(False)
+        # boundary after the last retained PC, on both axes, across the whole plot
+        if k < n:
+            ax.axhline(k, color=KEEP_COLOR, lw=1.5)
+            ax.axvline(k, color=KEEP_COLOR, lw=1.5)
+        panel_letter(ax, letter, x=-0.08)
+    handles = [Line2D([], [], color=KEEP_COLOR, lw=1.5,
+                      label=f"Boundary of retained components ($k$ = {k})")]
+    fig.legend(handles=handles, loc="lower center", frameon=False, ncol=1,
+               bbox_to_anchor=(0.5, -0.02))
+    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    save_figure(fig, out_path)
+    print(f"PC correlation heatmap saved: {out_path} (+ .pdf)")
 
 
 # =============================================================================
-# SECTIE 5 — SCORES (met / zonder whitening)
+# SECTION 5 — SCORES (with / without whitening)
 # =============================================================================
 
 def compute_scores(X: pd.DataFrame, full: PCA, k: int, whiten: bool) -> pd.DataFrame:
     """
-    PC-scores van de eerste k componenten. Gebruikt dezelfde (teken-gecorrigeerde)
-    eigenvectoren als de volledige PCA, zodat scores en loadings bij elkaar horen.
-    whiten=True: scores gedeeld door sqrt(eigenwaarde) -> variantie 1 per PC.
+    PC scores of the first k components. Uses the same (sign-corrected)
+    eigenvectors as the full PCA, so scores and loadings belong together.
+    whiten=True: scores divided by sqrt(eigenvalue) -> variance 1 per PC.
     """
     centered = X.to_numpy() - full.mean_
     scores = centered @ full.components_[:k].T
@@ -289,7 +400,7 @@ def compute_scores(X: pd.DataFrame, full: PCA, k: int, whiten: bool) -> pd.DataF
 
 
 # =============================================================================
-# HOOFDLOOP
+# MAIN
 # =============================================================================
 
 def main():
@@ -297,9 +408,9 @@ def main():
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--n-components", default=N_COMPONENTS_DEFAULT,
-                        help="Aantal PC's (bijv. 5) of doel-fractie variantie (bijv. 0.95)")
+                        help="Number of PCs (e.g. 5) or target fraction of variance (e.g. 0.95)")
     parser.add_argument("--whiten", choices=["no", "yes", "both"], default="both",
-                        help="Scores zonder whitening, met, of allebei (default)")
+                        help="Scores without whitening, with, or both (default)")
     args = parser.parse_args()
     out_dir = args.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -310,12 +421,12 @@ def main():
     X = df[features].replace([np.inf, -np.inf], np.nan)
     n_nan = int(X.isna().any(axis=1).sum())
     if n_nan:
-        print(f"[LET OP] {n_nan} rij(en) met NaN/inf uitgesloten voor PCA.")
+        print(f"[NOTE] {n_nan} row(s) with NaN/inf excluded from the PCA.")
         keep = ~X.isna().any(axis=1)
         X, df = X[keep], df[keep]
     print(f"{len(features)} features: {features}")
 
-    # --- Stap 1+2: volledige PCA ---
+    # --- Steps 1+2: full PCA ---
     full, ev, loadings, corr = fit_full_pca(X)
     k = resolve_k(ev, parse_n_components(args.n_components, len(features)))
 
@@ -323,19 +434,17 @@ def main():
     loadings.to_csv(out_dir / "pca_loadings.csv")
     corr.to_csv(out_dir / "pca_loading_correlations.csv")
 
-    print("\nAlle componenten:")
+    print("\nAll components:")
     print(ev.to_string(index=False))
-    n_kaiser = int((ev["eigenvalue"] > 1).sum())
-    print(f"\nKaiser-criterium (eigenwaarde > 1): {n_kaiser} PC('s).  "
-          f"Gekozen: {k} PC's = {ev['cum_pct_variance'].iloc[k - 1]:.1f}% variantie.")
-    print("\nLoadings als correlatie feature <-> PC (alle PC's):")
+    print(f"\nChosen: {k} PCs = {ev['cum_pct_variance'].iloc[k - 1]:.1f}% of variance.")
+    print("\nLoadings as correlation feature <-> PC (all PCs):")
     print(corr.round(2).to_string())
 
-    # --- Stap 3: plots ---
+    # --- Step 3: plots ---
     plot_scree(ev, k, out_dir / "pca_screeplot.png")
     plot_loadings(corr, ev, k, out_dir / "pca_loadings_heatmap.png")
 
-    # --- Stap 4: controle correlatie tussen PC's ---
+    # --- Step 4: check correlation between PCs ---
     pear, spear = pc_correlations(X, full)
     pear.to_csv(out_dir / "pc_correlation_pearson.csv")
     spear.to_csv(out_dir / "pc_correlation_spearman.csv")
@@ -343,15 +452,15 @@ def main():
 
     p_max, p_pair = max_offdiag(pear)
     s_max, s_pair = max_offdiag(spear)
-    print("\nControle: correlatie tussen PC-scores (buiten de diagonaal)")
+    print("\nCheck: correlation between PC scores (off the diagonal)")
     print(f"  Pearson  max |r|   = {p_max:.2e}  ({p_pair})  "
-          f"-> {'OK, ongecorreleerd' if p_max < 1e-8 else '[LET OP] niet ~0, controleer de input'}")
+          f"-> {'OK, uncorrelated' if p_max < 1e-8 else '[NOTE] not ~0, check the input'}")
     print(f"  Spearman max |rho| = {s_max:.3f}  ({s_pair})  "
-          "-> niet-lineaire/monotone samenhang die PCA niet weghaalt")
-    print("\nSpearman rho tussen PC's:")
+          "-> non-linear/monotonic association that PCA does not remove")
+    print("\nSpearman rho between PCs:")
     print(spear.round(2).to_string())
 
-    # --- Stap 5: scores ---
+    # --- Step 5: scores ---
     modes = {"no": [False], "yes": [True], "both": [False, True]}[args.whiten]
     print()
     for w in modes:
@@ -360,17 +469,17 @@ def main():
         name = f"pca_scores_{k}pc_{'whitened' if w else 'unwhitened'}.csv"
         out.to_csv(out_dir / name, index=False)
         var = scores.var(ddof=1).round(2).to_dict()
-        print(f"Scores {'MET' if w else 'ZONDER'} whitening -> {name}")
-        print(f"  variantie per PC: {var}")
+        print(f"Scores {'WITH' if w else 'WITHOUT'} whitening -> {name}")
+        print(f"  variance per PC: {var}")
 
-    print(f"\nAlles opgeslagen in: {out_dir}")
-    print("  - explained_variance.csv               <- eigenwaarde / % / cumulatief % per PC")
-    print("  - pca_loadings.csv                     <- eigenvectoren")
-    print("  - pca_loading_correlations.csv         <- correlatie feature <-> PC (interpretatie)")
-    print("  - pc_correlation_pearson.csv / _spearman.csv / pc_correlation_heatmap.png")
-    print("                                         <- controle: zijn de PC's ongecorreleerd?")
-    print("  - pca_screeplot.png / pca_loadings_heatmap.png")
-    print("  - pca_scores_*pc_(un)whitened.csv      <- input voor HDBSCAN")
+    print(f"\nAll output saved in: {out_dir}")
+    print("  - explained_variance.csv               <- eigenvalue / % / cumulative % per PC")
+    print("  - pca_loadings.csv                     <- eigenvectors")
+    print("  - pca_loading_correlations.csv         <- correlation feature <-> PC (interpretation)")
+    print("  - pc_correlation_pearson.csv / _spearman.csv / pc_correlation_heatmap.png(.pdf)")
+    print("                                         <- check: are the PCs uncorrelated?")
+    print("  - pca_screeplot.png(.pdf) / pca_loadings_heatmap.png(.pdf)")
+    print("  - pca_scores_*pc_(un)whitened.csv      <- input for HDBSCAN")
 
 
 if __name__ == "__main__":

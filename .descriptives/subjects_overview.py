@@ -27,10 +27,12 @@ import pandas as pd
 # ============================================================
 BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
 
-# FEATURES_CSV = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"
-FEATURES_CSV = BASE / "1. feature matrices" / ".feature info" / "arousal_feature_matrix_ORIGIN.csv"
+FEATURES_CSV = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"
+OUT_DIR = BASE / ".data descriptives" / "reduced data" / "subjects overview"
+
+# FEATURES_CSV = BASE / "1. feature matrices" / ".feature info" / "arousal_feature_matrix_ORIGIN_clipped.csv"
 SUBJECTS_CSV = BASE / ".data descriptives" / "subjects_timepoints_total(in).csv"
-OUT_DIR      = BASE / ".data descriptives" / "full data" / "subjects overview" 
+# OUT_DIR      = BASE / ".data descriptives" / "full data" / "subjects overview" 
 
 # Laat op None voor auto-detectie; vul in als de detectie de verkeerde kolom pakt.
 FM_SUBJECT_COL = "subject_id"  

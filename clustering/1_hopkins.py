@@ -1,15 +1,11 @@
 """
 1_hopkins.py
 
-Hopkins statistic on the REDUCED scaled feature matrix (8 features, one per
-correlation group).
+Hopkins statistic on the REDUCED scaled feature matrix.
 
 Tests whether the feature matrix has ANY inherent clustering tendency at all.
-If GMM/HDBSCAN keep returning one component/one blob, the Hopkins statistic
-tells you whether that is because the data itself has no cluster structure
-(H close to 0.5), rather than because the right parameters haven't been found.
 
-METHOD (Lawson & Jurs, 1990; Banerjee & Dave, 2004):
+Steps:
 For each of --n-repeats repeats:
     1. Draw a random SAMPLE of m real data points from the feature matrix.
     2. Generate m SYNTHETIC points, drawn uniformly at random from the same
@@ -45,7 +41,6 @@ Output (in --output-dir):
 import argparse
 import sys
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 
@@ -74,7 +69,7 @@ DEFAULT_ID_COLUMNS = [
 
 EXPECTED_N_FEATURES = 8
 
-# ---- loading helpers ----------
+# loading helpers 
 
 def detect_delimiter(path: Path, sample_lines: int = 5) -> str:
     import csv as csv_module
@@ -122,7 +117,7 @@ def load_features(path: Path, id_columns):
     df = pd.read_csv(path, sep=delimiter, decimal=decimal)
     print(f"Detected delimiter='{delimiter}', decimal='{decimal}'")
 
-    # Drop an unnamed index column if one was written by pandas upstream.
+    # Drop an unnamed index column if one was written by pandas upstream
     df = df.loc[:, ~df.columns.str.match(r"^Unnamed")]
 
     present_id_cols = [c for c in id_columns if c in df.columns]
@@ -145,7 +140,7 @@ def load_features(path: Path, id_columns):
     return df, feature_cols
 
 
-# ---- Hopkins statistic -----------------------------------------------------------
+# Hopkins statistic 
 
 def hopkins_statistic(X: np.ndarray, sample_size: int, rng: np.random.Generator,
                       lo: np.ndarray, hi: np.ndarray) -> float:
