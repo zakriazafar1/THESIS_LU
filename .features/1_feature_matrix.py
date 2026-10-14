@@ -56,7 +56,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import mne
-from scipy.signal import butter, filtfilt, hilbert, iirnotch
+from scipy.signal import butter, filtfilt, hilbert, iirnotch, sosfiltfilt
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 mne.set_log_level("ERROR")
@@ -67,7 +67,7 @@ mne.set_log_level("ERROR")
 
 RAW_ROOT   = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
 GROUPS     = ["NSR", "Prezens", "SAV"]
-EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
+EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices")
 
 TARGET_SFREQ = 128.0          
 NOTCH_HZ = 50.0
@@ -76,10 +76,14 @@ LOWPASS_HZ = 35.0
 
 EPOCH_SEC = 30.0                        # epoch 1 = t=0s
 
-EEG_CHANNELS = ["EEG L", "EEG R"]      # zoals de EDF-bestandsnamen heten
+EEG_CHANNELS = ["EEG L", "EEG R"]      
 CHANNEL_LABELS = {"EEG L": "L", "EEG R": "R"}  # korte labels voor kolomnamen in de featurematrix
 MOTION_CHANNELS = ["dX", "dY", "dZ"]
-OXY_CHANNEL = "OXY_IR_AC"      # optioneel, wordt geladen indien aanwezig
+OXY_CHANNEL = "OXY_IR_AC"     
+
+MOTION_HP_HZ = 0.5             # verwijdert zwaartekracht/houding
+MOTION_HP_ORDER = 2            # Butterworth-orde 
+MAD_TO_SD = 1.4826             # voor OXY_IR_AC (1.4826 * MAD = robuuste SD)
 
 BANDS = {
     "delta": (0.5, 3.99),
@@ -89,8 +93,7 @@ BANDS = {
     "beta":  (16.0, 30.0),
 }
 
-# Vaste kolomvolgorde van de featurematrix (per band: L_ratio, L_peak_ratio, R_ratio, R_peak_ratio,
-# dan de volgende band; daarna de mean_*_ratio's van alle banden naast elkaar).
+# Vaste kolomvolgorde van de featurematrix
 FEATURE_COLUMN_ORDER = (
     ["subject_id", "group", "night_id", "stage_rk", "event_idx",
      "start_sec", "end_sec", "duration_sec", "sec_prev_event"]
@@ -103,14 +106,13 @@ FEATURE_COLUMN_ORDER = (
 )
 
 # =============================================================================
-# SECTIE 1 — NACHTEN VINDEN EN IDENTIFICEREN
+# SECTIE 1: NACHTEN VINDEN 
 # =============================================================================
 
 def find_night_dirs(raw_root: Path) -> list[Path]:
-    """
+    """ 
     Zoekt alle nacht-mappen door te zoeken naar 'sleepArchitecture' submappen.
-    Dit omzeilt het probleem dat subject-nummer en nacht-nummer variabel zijn.
-    Filtert daarna op GROUPS, en houdt alleen T0_N# nachten over (geen T1, T2, ...).
+    Filtert daarna op GROUPS, en houdt alleen T0_N# nachten over.
     """
     arch_dirs = sorted(raw_root.rglob("sleepArchitecture"))
     night_dirs = [d.parent for d in arch_dirs if d.is_dir()]
@@ -128,7 +130,7 @@ def find_night_dirs(raw_root: Path) -> list[Path]:
 
 def parse_ids(night_dir: Path) -> dict:
     """
-    Parseert group / subject_id / night_id robuust uit de mapnaam,
+    Parseert group / subject_id / night_id uit de mapnaam,
     ongeacht het exacte subject-nummer of nacht-nummer.
 
     Voorbeeld: bnbd_nsr_01272_T0_N2  ->
@@ -154,7 +156,7 @@ def parse_ids(night_dir: Path) -> dict:
 
 
 # =============================================================================
-# SECTIE 2 — EVENTS EN HYPNOGRAM INLADEN
+# SECTIE 2: EVENTS EN HYPNOGRAM INLADEN
 # =============================================================================
 
 def find_events_file(arch_dir: Path, stem: str) -> Path | None:
@@ -166,7 +168,7 @@ def find_events_file(arch_dir: Path, stem: str) -> Path | None:
 
 
 def find_hypnogram_file(arch_dir: Path, stem: str) -> Path | None:
-    """Zoekt het hypnogram-bestand (R&K sleep stages), indien aanwezig."""
+    """Zoekt het hypnogram-bestand, indien aanwezig."""
     exact = arch_dir / f"{stem}.csv"
     if exact.exists():
         return exact
@@ -205,11 +207,11 @@ def load_events(path: Path) -> pd.DataFrame:
 def load_hypnogram(path: Path) -> pd.DataFrame | None:
     """
     Laadt het hypnogram. Vast formaat, GEEN header:
-      kolom 1 = R&K-stage per epoch (0=wake, 1, 2, 3, 5=REM)
-      kolom 2 = ongebruikt (altijd 0 in de bestanden die we tot nu toe zagen)
+      kolom 1 = sleep stage per epoch (0=wake, 1, 2, 3, 5=REM)
+      kolom 2 = ongebruikt 
     Rij N (1-based) = epoch N; epoch 1 begint bij t=0s van de opname, en elke
-    epoch duurt EPOCH_SEC seconden (standaard R&K/AASM-epochlengte, 30s).
-    Geeft None terug als het bestand niet gevonden of niet leesbaar is.
+    epoch duurt EPOCH_SEC seconden. Geeft None terug als het bestand niet 
+    gevonden of niet leesbaar is.
     """
     if path is None:
         return None
@@ -227,7 +229,7 @@ def load_hypnogram(path: Path) -> pd.DataFrame | None:
 
 
 def get_stage_at(hypnogram: pd.DataFrame | None, t_sec: float):
-    """Geeft de R&K-stage terug die geldt op tijdstip t_sec, of NaN."""
+    """Geeft de sleep stage terug die geldt op tijdstip t_sec, of NaN."""
     if hypnogram is None or len(hypnogram) == 0:
         return np.nan
     idx = hypnogram["onset_sec"].searchsorted(t_sec, side="right") - 1
@@ -237,15 +239,14 @@ def get_stage_at(hypnogram: pd.DataFrame | None, t_sec: float):
 
 
 # =============================================================================
-# SECTIE 3 — EDF KANALEN INLADEN
+# SECTIE 3: EDF KANALEN INLADEN
 # =============================================================================
 
 def get_edf_dir(night_dir: Path, stem: str) -> Path:
     """
     Geeft de map terug waarin de EDF-kanaalbestanden staan.
     Structuur: night_dir / <stem>_edf / EEG L.edf, EEG R.edf, ...
-    Valt terug op night_dir zelf als de _edf submap niet bestaat
-    (voor het geval de structuur toch per nacht verschilt).
+    Valt terug op night_dir zelf als de _edf submap niet bestaat.
     """
     edf_dir = night_dir / f"{stem}_edf"
     return edf_dir if edf_dir.exists() else night_dir
@@ -321,7 +322,12 @@ def load_night_signals(night_dir: Path, stem: str) -> dict:
         loaded = load_channel(edf_dir, ch)
         if loaded is not None:
             data, sfreq = loaded
-            data = data - np.median(data)  # DC-removal: anders meet motion_rms grotendeels sensor-offset
+            # High-pass op de oorspronkelijke samplefrequentie: verwijdert de zwaartekracht-
+            # component (die per houding verschilt) en houdt alleen hoofdbeweging over.
+            # Alleen mediaan-centreren is niet genoeg: in elke andere houding dan de
+            # "gemiddelde" bleef er tot ~1-2 g zwaartekracht over die als beweging telde.
+            sos = butter(MOTION_HP_ORDER, MOTION_HP_HZ, btype="high", fs=sfreq, output="sos")
+            data = sosfiltfilt(sos, data)
             signals[ch] = _resample_scipy(data, sfreq)
 
     loaded = load_channel(edf_dir, OXY_CHANNEL)
@@ -333,7 +339,7 @@ def load_night_signals(night_dir: Path, stem: str) -> dict:
 
 
 # =============================================================================
-# SECTIE 4 — FEATURES PER EVENT BEREKENEN
+# SECTIE 4: FEATURES PER EVENT BEREKENEN
 # =============================================================================
 
 def compute_night_band_envelopes(signals: dict) -> dict:
@@ -375,24 +381,21 @@ def safe_ratio(numerator: float, denominator: float) -> float:
 
 def extract_event_features(signals: dict, start_sec: float, end_sec: float,
                             night_envelopes: dict, night_baselines: dict,
-                            oxy_night_std: float | None) -> dict:
+                            oxy_night_baseline: float | None) -> dict:
     """
     Berekent features voor één event, gebaseerd op de EEG-signalen.
 
-    Band-ratio's: tijdens-event gemiddelde/piek gedeeld door de MEDIAAN VAN
-    DE HELE NACHT (night_baselines) voor dat kanaal+band. Alle events in
-    dezelfde nacht worden zo tegen hetzelfde, stabiele referentiepunt afgezet:
-
-        {band}_ratio = tijdens-event gemiddelde amplitude / mediane amplitude over de hele nacht
+    Band-ratio's: tijdens-event gemiddelde/piek amplitude gedeeld door de 
+    MEDIANE amplitude van de hele nacht (night_baselines) voor dat kanaal+band. 
 
     De tijdens-event amplitude-waarden worden gesliced uit de al voor de hele
     nacht berekende band-envelope (night_envelopes), i.p.v. opnieuw een
-    bandpass-filter op het korte event-segment te draaien — dat voorkomt
-    filter-randeffecten op korte segmenten én is sneller.
+    bandpass-filter op het korte event-segment te draaien om filter-randeffecten 
+    op korte segmenten te voorkomen + is sneller.
 
-    oxy_amp_ratio gebruikt dezelfde whole-night-logica: tijdens-event std
-    van het OXY_IR_AC-signaal gedeeld door de std over de HELE nacht
-    (oxy_night_std, één keer per nacht berekend).
+    oxy_amp_ratio gebruikt dezelfde logica: tijdens-event std van het 
+    OXY_IR_AC signaal gedeeld door de ROBUUSTE std over de HELE nacht 
+    (oxy_night_baseline = 1.4826 x MAD).
     """
     feats = {}
     sf = TARGET_SFREQ
@@ -422,7 +425,7 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
             feats[f"{label}_{band_name}_ratio"] = safe_ratio(during_mean, baseline_med)
             feats[f"{label}_{band_name}_peak_ratio"] = safe_ratio(during_peak, baseline_med)
 
-    # Gemiddelde over kanalen (voor als er maar 1 kanaal beschikbaar is, of ter samenvatting)
+    # Gemiddelde over kanalen 
     for band_name in BANDS:
         ratios = [feats.get(f"{CHANNEL_LABELS[ch]}_{band_name}_ratio") for ch in EEG_CHANNELS
                   if f"{CHANNEL_LABELS[ch]}_{band_name}_ratio" in feats]
@@ -431,12 +434,11 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
 
     # Motion features (accelerometer), als proxy voor beweging tijdens het event.
     # We combineren dX/dY/dZ eerst tot één vectormagnitude per sample
-    # (sqrt(dX^2+dY^2+dZ^2)) en nemen PAS DAARNA de RMS over de tijd, i.p.v.
-    # per as apart RMS te nemen en die drie getallen te middelen. Dat maakt
-    # motion_rms rotatie-invariant: dezelfde fysieke beweging geeft hetzelfde
-    # getal ongeacht hoe de hoofdband op dat moment gedraaid lag (bv. op de rug
-    # vs. op de zij), terwijl het rekenkundig gemiddelde van losse per-as-RMS's
-    # daar wel gevoelig voor is.
+    # en nemen PAS DAARNA de RMS over de tijd, i.p.v. per as apart RMS te nemen 
+    # en die drie getallen te middelen. Dat maakt motion_rms rotatie-invariant: 
+    # dezelfde fysieke beweging geeft hetzelfde getal ongeacht hoe de hoofdband 
+    # op dat moment gedraaid lag (bv. op de rug vs. op de zij), terwijl het rekenkundig 
+    # gemiddelde van losse per-as-RMS's daar wel gevoelig voor is.
     available_motion = [ch for ch in MOTION_CHANNELS if ch in signals]
     if available_motion and all(end_i <= len(signals[ch]) and start_i < end_i
                                  for ch in available_motion):
@@ -445,13 +447,13 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
     else:
         feats["motion_rms"] = np.nan
 
-    # Pulse-oximetrie amplitude-ratio (cardiovasculaire arousal proxy): tijdens-event std
-    # gedeeld door de std over de HELE nacht, indien het OXY-kanaal beschikbaar is.
-    if OXY_CHANNEL in signals and oxy_night_std is not None:
+    # Pulse-oximetrie amplitude-ratio: tijdens-event std gedeeld door de robuuste std
+    # over de HELE nacht.
+    if OXY_CHANNEL in signals and oxy_night_baseline is not None:
         sig = signals[OXY_CHANNEL]
         if end_i <= len(sig) and start_i < end_i:
             event_std = np.std(sig[start_i:end_i])
-            feats["oxy_amp_ratio"] = safe_ratio(event_std, oxy_night_std)
+            feats["oxy_amp_ratio"] = safe_ratio(event_std, oxy_night_baseline)
         else:
             feats["oxy_amp_ratio"] = np.nan
     else:
@@ -461,16 +463,15 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
 
 
 # =============================================================================
-# SECTIE 5 — HOOFDLOOP
+# SECTIE 5: HOOFDLOOP
 # =============================================================================
 
 def process_night(night_dir: Path, ids: dict, inspect: bool = False,
                    start_idx: int = 0) -> pd.DataFrame | None:
     """
     start_idx: de event_idx-waarde waarmee deze nacht begint (loopt door over
-    de hele run, i.p.v. elke nacht opnieuw bij 0 te beginnen). De caller
-    (main()) houdt de lopende teller bij en hoogt hem op met len(df) na elke
-    verwerkte nacht.
+    de hele run). De caller (main()) houdt de lopende teller bij en hoogt 
+    hem op met len(df) na elke verwerkte nacht.
     """
     arch_dir = night_dir / "sleepArchitecture"
     events_path = find_events_file(arch_dir, ids["stem"])
@@ -503,18 +504,21 @@ def process_night(night_dir: Path, ids: dict, inspect: bool = False,
         print(f"  [SKIP] geen EEG-kanalen geladen voor {ids['stem']}")
         return None
 
-    # Whole-night band-envelopes en -baselines: één keer per nacht berekenen,
-    # daarna hergebruiken voor elk event (i.p.v. per event opnieuw filteren).
     night_envelopes = compute_night_band_envelopes(signals)
     night_baselines = compute_night_baselines(night_envelopes)
     
-    oxy_night_std = np.std(signals[OXY_CHANNEL]) if OXY_CHANNEL in signals else None
+    # Robuuste nacht-baseline voor OXY 
+    if OXY_CHANNEL in signals:
+        oxy = signals[OXY_CHANNEL]
+        oxy_night_baseline = MAD_TO_SD * np.median(np.abs(oxy - np.median(oxy)))
+    else:
+        oxy_night_baseline = None
 
     rows = []
     prev_end = None
     for i, ev in events.iterrows():
         feats = extract_event_features(signals, ev["start_sec"], ev["end_sec"],
-                                        night_envelopes, night_baselines, oxy_night_std)
+                                        night_envelopes, night_baselines, oxy_night_baseline)
         feats.update({
             "subject_id": ids["subject_id"],
             "group": ids["group"],
@@ -546,7 +550,7 @@ def main():
         night_dirs = night_dirs[: args.limit]
 
     all_rows = []
-    running_event_idx = 0  # doorlopende teller over alle nachten heen (voorlopig, zie hieronder)
+    running_event_idx = 0  
     for night_dir in night_dirs:
         ids = parse_ids(night_dir)
         try:
@@ -571,20 +575,12 @@ def main():
 
     feature_matrix = pd.concat(all_rows, ignore_index=True)
 
-    # event_idx opnieuw nummeren over de VOLLEDIGE, geconcateneerde dataset --
-    # dit is de enige plek die garandeert dat elk event (over alle participanten
-    # en nachten heen) een uniek, strikt doorlopend event_idx krijgt, ongeacht
-    # de per-nacht boekhouding hierboven.
+    # event_idx opnieuw nummeren over de VOLLEDIGE dataset 
     feature_matrix["event_idx"] = range(len(feature_matrix))
 
     EVENTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Per-nacht featurematrices PAS NU wegschrijven (na de globale herindexering hierboven),
-    # zodat elk per-nacht bestand exact dezelfde event_idx-waarden bevat als het gecombineerde
-    # arousal_feature_matrix_ORIGIN.csv -- anders zouden de losse bestanden nog de voorlopige,
-    # per-nacht-lokale event_idx uit process_night() hebben. Standaard CSV: komma-scheiding,
-    # punt-decimaal — NIET Excel-NL-formaat, want dat corrumpeert bij openen/opslaan met een
-    # niet-NL Excel-locale-instelling: decimale komma's worden dan als duizendtal-scheiding gelezen.
+    # Per-nacht featurematrices pas wegschrijven na de globale herindexering 
     for stem, group_df in feature_matrix.groupby("_stem", sort=False):
         night_out_path = EVENTS_DIR / f"{stem}_fm.csv"
         group_df.drop(columns="_stem").to_csv(night_out_path, index=False, float_format="%.3f")

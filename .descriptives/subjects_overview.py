@@ -27,17 +27,18 @@ import pandas as pd
 # ============================================================
 BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
 
-FEATURES_CSV = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"
-SUBJECTS_CSV = BASE / "data descriptives" / "subjects_timepoints_total(in).csv"
-OUT_DIR      = BASE / "data descriptives" / "subjects overview" 
+# FEATURES_CSV = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"
+FEATURES_CSV = BASE / "1. feature matrices" / ".feature info" / "arousal_feature_matrix_ORIGIN.csv"
+SUBJECTS_CSV = BASE / ".data descriptives" / "subjects_timepoints_total(in).csv"
+OUT_DIR      = BASE / ".data descriptives" / "full data" / "subjects overview" 
 
 # Laat op None voor auto-detectie; vul in als de detectie de verkeerde kolom pakt.
-FM_SUBJECT_COL = "subject_id"   # bv. "subject"
-FM_NIGHT_COL   = "night_id"   # bv. "night" of "edf_file"
-FM_EVENT_COL   = "event_idx"   # optioneel (bv. "event_id"); anders telt elke rij als 1 event
-SI_SUBJECT_COL = "nsr_id"   # bv. "participant_id"
-SI_GENDER_COL  = "female"   # bv. "gender" / "sex"
-SI_AGE_COL     = "age"   # bv. "age"
+FM_SUBJECT_COL = "subject_id"  
+FM_NIGHT_COL   = "night_id"  
+FM_EVENT_COL   = "event_idx"   
+SI_SUBJECT_COL = "nsr_id"
+SI_GENDER_COL  = "female"   
+SI_AGE_COL     = "age"   
 
 # Subject-IDs matchen op alleen het numerieke deel (bv. "BNBD_012" == "12").
 # Zet op False als IDs letterlijk gelijk moeten zijn.
@@ -75,10 +76,10 @@ def find_col(df: pd.DataFrame, candidates, override=None, required=True, label="
             raise KeyError(f"[{label}] kolom '{override}' niet gevonden. Beschikbaar: {list(df.columns)}")
         return override
     lower = {c.lower(): c for c in df.columns}
-    for cand in candidates:                      # exacte match
+    for cand in candidates:                      
         if cand in lower:
             return lower[cand]
-    for cand in candidates:                      # bevat-match
+    for cand in candidates:                      
         for lc, orig in lower.items():
             if cand in lc:
                 return orig

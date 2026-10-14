@@ -69,7 +69,7 @@ OUTPUT_PREFIX = "hopkins_reduced"
 
 DEFAULT_ID_COLUMNS = [
     "subject_id", "group", "night_id", "stage_rk", "event_idx",
-    "start_sec", "end_sec", "duration_sec", "sec_prev_event",
+    "start_sec", "end_sec", "sec_prev_event",
 ]
 
 EXPECTED_N_FEATURES = 8
@@ -183,10 +183,10 @@ def main():
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--id-columns", type=str, nargs="*", default=DEFAULT_ID_COLUMNS)
-    parser.add_argument("--sample-frac", type=float, default=0.05,
-                        help="Fraction of events used as sample size m per repeat (default 0.05)")
-    parser.add_argument("--min-sample-size", type=int, default=30)
-    parser.add_argument("--max-sample-size", type=int, default=500)
+    parser.add_argument("--sample-frac", type=float, default=0.1,
+                        help="Fraction of events used as sample size m per repeat (default 0.1)")
+    parser.add_argument("--min-sample-size", type=int, default=1300)
+    parser.add_argument("--max-sample-size", type=int, default=1300)
     parser.add_argument("--n-repeats", type=int, default=50)
     parser.add_argument("--trim-quantile", type=float, default=0.0,
                         help="If >0, draw synthetic points within the [q, 1-q] quantile range "
@@ -252,8 +252,7 @@ def main():
           f"(range {h_min:.4f}-{h_max:.4f} across {args.n_repeats} repeats)")
     print(f"Interpretation: {interpretation}")
     print("\nNote: skewed/heavy-tailed data can push H above 0.5 without real clusters. "
-          "Compare against the Gaussian-copula null (3_nullmodel.py) and/or rerun "
-          "with --trim-quantile 0.01 before concluding.")
+          "Rerun with --trim-quantile 0.01 before concluding.")
 
 
 if __name__ == "__main__":

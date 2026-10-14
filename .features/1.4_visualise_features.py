@@ -2,204 +2,368 @@
 =============================================================================
 1.4_visualise_features.py
 
-Visualiseert de verdeling van elke feature in de (opgeschoonde) featurematrix
-als histogram. Om het leesbaar te houden worden de features over TWEE
-figuren (grids) verdeeld:
+Thesis figures of the distribution of every feature in the
+feature matrix (APA7).
 
-  Figuur 1 - EEG band-ratio's per kanaal (20 features)
-             rijen = banden (delta ... beta)
-             kolommen = L_ratio, L_peak_ratio, R_ratio, R_peak_ratio
+Figures
+  ..._eeg    EEG band amplitude: one row per frequency band
+               col 1  mean amplitude ratio during the event  (left and right channel overlaid)
+               col 2  peak amplitude ratio during the event  (left and right channel overlaid)
+               col 3  mean amplitude ratio, left/right average
+             Log axes (1 = night median, so 0.5x and 2x are symmetric), shared per
+             column so bands can be compared directly.
+  ..._other  All remaining features (duration, head movement, PPG, ...), linear axes.
 
-  Figuur 2 - Overige features (mean_*_ratio, timing, motion, oxy)
+  x-axes are truncated at the CLIP_PCT percentiles (default 0.5-99.5) so a few
+  extreme events do not flatten the histograms; no data are removed. The number
+  of events outside the axes is printed to the console. 
 
-Leesbaarheid:
-  - Ratio-features zijn sterk scheef verdeeld (lange staart naar rechts).
-    Daarom wordt de x-as per plot afgekapt op het 0.5e-99.5e percentiel;
-    het aantal events BUITEN dat bereik staat in de titel ("outside axis").
-    Er worden geen data verwijderd, alleen de weergave wordt afgekapt.
-  - Rode stippellijn  = mediaan
-  - Grijze lijn (x=1) = baseline van de nacht (alleen bij ratio-features:
-    waarde 1 betekent "gelijk aan de mediane amplitude van die nacht")
+Non-feature columns (subject_id, group, night_id, stage_rk, event_idx,
+start_sec, end_sec) are skipped.
 
-Niet-feature kolommen (subject_id, group, night_id, stage_rk, event_idx,
-start_sec, end_sec) worden overgeslagen.
+Input : INPUT_FILE (falls back to FALLBACK_FILE), or --input <csv>
+Output: feature_distributions_eeg.png / .pdf  and  feature_distributions_other.png / .pdf  
+        with --input the input name is added, e.g. feature_distributions_FILTERED_eeg.png
 
-Input : arousal_feature_matrix_CLEAN.csv  (valt terug op _ORIGIN.csv)
-Output:
-  feature_distributions_1_eeg_bands.png
-  feature_distributions_2_other.png
-
-Gebruik:
+Usage
   python 1.4_visualise_features.py
-  python 1.4_visualise_features.py --input "pad\\naar\\arousal_feature_matrix_FILTERED.csv"
-
-Met --input wordt de naam van het input-bestand aan de output toegevoegd,
-zodat de standaard-plots niet overschreven worden:
-  ..._FILTERED.csv  ->  feature_distributions_eeg_FILTERED.png, ..._other_FILTERED.png
+  python 1.4_visualise_features.py --input "path/to/arousal_feature_matrix_FILTERED.csv"
 =============================================================================
 """
 
 import argparse
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")          # geen venster nodig, alleen PNG's wegschrijven
+matplotlib.use("Agg")          
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
+from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator, NullLocator
 
 # =============================================================================
-# CONFIGURATIE
+# CONFIGURATION
 # =============================================================================
 
 EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
 
 INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_FILTERED.csv"
-FALLBACK_FILE = EVENTS_DIR / "arousal_feature_matrix_NO_NA.csv"
+FALLBACK_FILE = EVENTS_DIR / "arousal_feature_matrix_ORIGIN_clipped.csv"
 
-OUT_EEG = EVENTS_DIR / "feature_distributions_eeg.png"
-OUT_OTHER = EVENTS_DIR / "feature_distributions_other.png"
+OUT_DIR = EVENTS_DIR
+OUT_NAME = "feature_distributions"          # -> .png and .pdf
 
 NON_FEATURE_COLUMNS = [
     "subject_id", "group", "night_id", "stage_rk", "event_idx",
     "start_sec", "end_sec",
 ]
 
-BANDS = ["delta", "theta", "alpha", "sigma", "beta"]
-EEG_METRICS = ["L_ratio", "L_peak_ratio", "R_ratio", "R_peak_ratio"]   
-
-CLIP_PCT = (1, 99)   # weergavebereik x-as (percentielen)
-N_BINS = 60
-DPI = 150
-
-BAR_COLOR = "#3B6EA8"
-MEDIAN_COLOR = "#C0392B"
-BASELINE_COLOR = "#7F7F7F"
-
-# Nette titels 
-PRETTY = {
-    "duration_sec": "duration (s)",
-    "sec_prev_event": "time prev. event (s)",
-    "motion_rms": "motion RMS",
-    "oxy_amp_ratio": "oxy amplitude ratio",
+# Frequency bands: column name -> row label shown in the figure
+BANDS = {
+    "delta": "Delta\n(0.5-4 Hz)",
+    "theta": "Theta\n(4-8 Hz)",
+    "alpha": "Alpha\n(8-12 Hz)",
+    "sigma": "Sigma\n(12-16 Hz)",
+    "beta":  "Beta\n(16-30 Hz)",
 }
 
+# EEG columns: (column heading, column-name template(s), overlay L/R?)
+EEG_COLUMNS = [
+    ("Mean Amplitude",                ["L_{b}_ratio", "R_{b}_ratio"],           True),
+    ("Peak Amplitude",                ["L_{b}_peak_ratio", "R_{b}_peak_ratio"], True),
+    ("L/R Average",                   ["mean_{b}_ratio"],                       False),
+]
+EEG_XLABEL = "Event Ratio"   # one shared label under panel A
+
+# Other features: column -> (panel heading, x-axis label, draw ratio-1 line?)
+OTHER_FEATURES = {
+    "duration_sec":   ("Arousal Duration",            "Duration (s)",             False),
+    "motion_rms":     ("Head Movement",               "RMS Acceleration (g)",     False),
+    "oxy_amp_ratio":  ("PPG Pulse Amplitude",         "Event Ratio",  True),
+    "sec_prev_event": ("Time Since Previous Arousal", "Interval (s)",             False),
+}
+Y_LABEL = "Number of Events"
+
+CLIP_PCT = (0.5, 99.5)     # displayed x-range (percentiles); data are not removed
+N_BINS = 40
+LOG_TICKS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
+
+# Size: 16 cm = text width of an A4 page with 2.5 cm margins; fonts are set at print size.
+FIG_WIDTH_IN = 6.0
+ROW_HEIGHT_IN = 1.15       # EEG figure: height of one row of panels
+ROW_GAP_IN = 0.15          # EEG figure: extra height per row for the whitespace between rows
+OTHER_N_COLS = 3           # other-features figure: panels per row
+OTHER_ROW_HEIGHT_IN = 2.3  # other-features figure: height of one row of panels
+DPI = 300
+
+# Whitespace (increase for a more open layout)
+PAD_IN = 0.08              # margin around every panel, in inches
+PANEL_HSPACE = 0.10        # vertical gap between panels
+PANEL_WSPACE = 0.12        # horizontal gap between panels
+OUTER_MARGIN_IN = 0.15     # white border around the whole figure when saving
+FONT_CANDIDATES = ["Arial", "Helvetica", "Liberation Sans", "DejaVu Sans"]   # first available is used
+
+# Colours: validated colour-blind-safe pair for L/R; neutral grey for single series
+COLOR_L = "#2a78d6"        # blue
+COLOR_R = "#eb6834"        # orange
+COLOR_SINGLE = "#595959"   # grey
+BLACK = "#000000"
+REF_GREY = "#8c8c8c"       # reference line (ratio = 1)
+
+
+def pick_font() -> str:
+    available = {f.name for f in font_manager.fontManager.ttflist}
+    return next((f for f in FONT_CANDIDATES if f in available), "DejaVu Sans")
+
+
+FONT = pick_font()
+plt.rcParams.update({
+    "font.family": FONT,
+    "mathtext.fontset": "custom",            # italic Mdn in the same font
+    "mathtext.rm": FONT,
+    "mathtext.it": f"{FONT}:italic",
+    "mathtext.bf": f"{FONT}:bold",
+    "mathtext.sf": FONT,
+    "mathtext.tt": FONT,
+    "mathtext.cal": FONT,
+    "font.size": 8,
+    "axes.titlesize": 8.5,
+    "axes.titleweight": "normal",
+    "axes.labelsize": 8,
+    "xtick.labelsize": 8,
+    "ytick.labelsize": 8,
+    "legend.fontsize": 8,
+    "axes.edgecolor": BLACK,
+    "axes.linewidth": 0.75,
+    "axes.labelcolor": BLACK,
+    "text.color": BLACK,
+    "xtick.color": BLACK,
+    "ytick.color": BLACK,
+    "xtick.direction": "out",
+    "ytick.direction": "out",
+    "xtick.major.width": 0.75,
+    "ytick.major.width": 0.75,
+    "xtick.major.size": 3,
+    "ytick.major.size": 3,
+    "axes.grid": False,
+    "figure.facecolor": "white",
+    "axes.facecolor": "white",
+    "savefig.facecolor": "white",
+    "pdf.fonttype": 42,          # embed text as text (editable, crisp in Word/LaTeX)
+    "svg.fonttype": "none",
+})
+
 # =============================================================================
-# INLEZEN 
+# READING
 # =============================================================================
 
 def load_feature_matrix(path: Path) -> pd.DataFrame:
-    """Detecteert komma/puntkomma-scheiding en zet decimale komma's om."""
+    """Detects comma/semicolon separator and converts decimal commas."""
     df = pd.read_csv(path, sep=None, engine="python")
     df.columns = [str(c).strip() for c in df.columns]
-
     for col in df.columns:
         if col in ("subject_id", "group", "night_id") or pd.api.types.is_numeric_dtype(df[col]):
             continue
         converted = pd.to_numeric(
-            df[col].astype(str).str.strip().str.replace(",", ".", regex=False),
-            errors="coerce",
-        )
+            df[col].astype(str).str.strip().str.replace(",", ".", regex=False), errors="coerce")
         if converted.notna().any():
             df[col] = converted
     return df.replace([np.inf, -np.inf], np.nan)
 
 
 # =============================================================================
-# PLOTTEN
+# HELPERS
 # =============================================================================
 
-def plot_hist(ax, values: pd.Series, title: str, is_ratio: bool):
-    """Eén histogram, met afgekapt weergavebereik, mediaan en (bij ratio's) x=1."""
-    x = values.dropna().to_numpy()
-    if len(x) == 0:
-        ax.text(0.5, 0.5, "geen data", ha="center", va="center", transform=ax.transAxes)
-        ax.set_title(title, fontsize=10)
-        return
+def clean(values: pd.Series, positive: bool = False) -> np.ndarray:
+    x = values.dropna().to_numpy(dtype=float)
+    return x[x > 0] if positive else x
 
-    lo, hi = np.percentile(x, CLIP_PCT)
-    if lo == hi:                                   # constante feature
-        lo, hi = lo - 0.5, hi + 0.5
-    n_out = int(((x < lo) | (x > hi)).sum())
 
-    ax.hist(x[(x >= lo) & (x <= hi)], bins=N_BINS, range=(lo, hi),
-            color=BAR_COLOR, edgecolor="white", linewidth=0.4)
+def clip_range(arrays: list[np.ndarray], log: bool) -> tuple[float, float]:
+    pooled = np.concatenate([a for a in arrays if len(a)]) if any(len(a) for a in arrays) else np.array([1.0])
+    lo, hi = np.percentile(pooled, CLIP_PCT)
+    if lo == hi:
+        lo, hi = (lo / 2, hi * 2) if log else (lo - 0.5, hi + 0.5)
+    return float(lo), float(hi)
 
-    med = np.median(x)
-    ax.axvline(med, color=MEDIAN_COLOR, linestyle="--", linewidth=1.2)
-    if is_ratio and lo <= 1 <= hi:
-        ax.axvline(1.0, color=BASELINE_COLOR, linewidth=1.0)
 
+def fmt_number(v: float, _pos=None) -> str:
+    return f"{v:g}"
+
+
+def fmt_count(v: float, _pos=None) -> str:
+    return f"{int(v):,}"
+
+
+def style_axis(ax):
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.yaxis.set_major_locator(MaxNLocator(3, integer=True))
+    ax.yaxis.set_major_formatter(FuncFormatter(fmt_count))
+    ax.set_ylim(bottom=0)
+
+
+def set_log_axis(ax, lo: float, hi: float):
+    ax.set_xscale("log")
     ax.set_xlim(lo, hi)
-    sub = f"median = {med:.2f}   n = {len(x)}"
-    if n_out:
-        sub += f"   ({n_out} outside axis)"
-    ax.set_title(f"{title}\n{sub}", fontsize=10)
-
-    ax.tick_params(labelsize=8)
-    ax.grid(axis="y", color="#E5E5E5", linewidth=0.6)
-    ax.set_axisbelow(True)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-
-
-def add_legend(fig, show_baseline: bool = True):
-    handles = [plt.Line2D([], [], color=MEDIAN_COLOR, linestyle="--", label="median")]
-    if show_baseline:
-        handles.append(plt.Line2D([], [], color=BASELINE_COLOR, label="ratio = 1 (night baseline)"))
-    fig.legend(handles=handles, loc="upper right", fontsize=9, frameon=False)
+    ticks = [t for t in LOG_TICKS if lo <= t <= hi]
+    if np.log10(hi / lo) > 2.3:              # wide range (> ~2 decades): powers of ten only
+        ticks = [t for t in ticks if np.isclose(np.log10(t), round(np.log10(t)))]
+    elif len(ticks) > 5:                     # keep at most ~5 labels at 8 pt
+        ticks = [t for t in ticks if t in (0.5, 1, 2, 5, 10, 20, 50)][:5]
+    if len(ticks) < 2:                       # very narrow range: fall back to two end ticks
+        ticks = [lo, hi]
+    ax.xaxis.set_major_locator(FixedLocator(ticks))
+    ax.xaxis.set_major_formatter(FuncFormatter(fmt_number))
+    ax.xaxis.set_minor_locator(NullLocator())
 
 
-def figure_eeg_bands(df: pd.DataFrame, n_events: int, source: str):
-    """Figuur 1: rijen = banden, kolommen = L/R x mean/peak."""
-    fig, axes = plt.subplots(len(BANDS), len(EEG_METRICS),
-                             figsize=(16, 3.2 * len(BANDS)), squeeze=False)
-    for r, band in enumerate(BANDS):
-        for c, metric in enumerate(EEG_METRICS):
-            ch, kind = metric.split("_", 1)            # "L", "ratio" / "peak_ratio"
-            col = f"{ch}_{band}_{kind}"
-            ax = axes[r, c]
-            if col in df.columns:
-                plot_hist(ax, df[col], col, is_ratio=True)
-            else:
-                ax.set_visible(False)
-            if c == 0:
-                ax.set_ylabel("events", fontsize=9)
-
-    fig.suptitle(f"EEG band ratios per channel  -  {n_events} events ({source})",
-                 fontsize=14, x=0.01, ha="left")
-    add_legend(fig)
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
-    return fig
+def draw_hist(ax, x: np.ndarray, bins: np.ndarray, color: str, lo: float, hi: float,
+              fill: bool = True):
+    """Outline histogram; filled only for single series (overlaid fills blend into a third colour)."""
+    shown = x[(x >= lo) & (x <= hi)]
+    if fill:
+        ax.hist(shown, bins=bins, histtype="stepfilled", color=color, alpha=0.30, linewidth=0)
+    ax.hist(shown, bins=bins, histtype="step", color=color, linewidth=1.0 if fill else 1.1)
+    ax.axvline(np.median(x), color=color, linestyle=(0, (3, 2)), linewidth=1.0)
 
 
-def figure_other(df: pd.DataFrame, cols: list[str], n_events: int, source: str):
-    """Figuur 2: alle overige features, 3 kolommen breed."""
-    n_cols = 3
-    n_rows = int(np.ceil(len(cols) / n_cols))
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(14, 3.4 * n_rows), squeeze=False)
-
-    for i, col in enumerate(cols):
-        ax = axes[i // n_cols, i % n_cols]
-        plot_hist(ax, df[col], PRETTY.get(col, col), is_ratio=col.endswith("ratio"))
-        if i % n_cols == 0:
-            ax.set_ylabel("events", fontsize=9)
-    for j in range(len(cols), n_rows * n_cols):
-        axes[j // n_cols, j % n_cols].set_visible(False)
-
-    fig.suptitle(f"Other features  -  {n_events} events ({source})",
-                 fontsize=14, x=0.01, ha="left")
-    add_legend(fig)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
-    return fig
+def median_label(ax, values: list[tuple[str, float]]):
+    """Medians in the top-right corner, e.g. 'Mdn L = 1.73' (Mdn in italics, APA)."""
+    lines = [rf"$\it{{Mdn}}${(' ' + name) if name else ''} = {v:.2f}" for name, v in values]
+    ax.text(0.98, 0.98, "\n".join(lines), transform=ax.transAxes, ha="right", va="top",
+            fontsize=7.5, linespacing=1.3)
+    # headroom above the histogram so the label never overlaps the bars,
+    # and vertical lines (median, ratio = 1) stop just below the label
+    factor = 1.24 + 0.18 * (len(lines) - 1)
+    top = ax.get_ylim()[1]
+    ax.set_ylim(0, top * factor)
+    for line in ax.lines:
+        xdata = line.get_xdata()
+        if len(xdata) == 2 and xdata[0] == xdata[1]:          # vertical line from axvline
+            line.set_ydata([0, 1.02 / factor])
 
 
 # =============================================================================
-# HOOFDLOOP
+# FIGURE
+# =============================================================================
+
+def new_figure(height_in: float):
+    fig = plt.figure(figsize=(FIG_WIDTH_IN, height_in), layout="constrained")
+    # Whitespace: *_pad = margin around each panel (inches), *space = gap between panels (fraction)
+    fig.get_layout_engine().set(h_pad=PAD_IN, w_pad=PAD_IN, hspace=PANEL_HSPACE, wspace=PANEL_WSPACE)
+    return fig
+
+
+def build_eeg_figure(df: pd.DataFrame, log_lines: list[str]):
+    """Figure 1: EEG band amplitude (rows = bands, columns = mean / peak / L-R average)."""
+    bands = [b for b in BANDS if any(t.format(b=b) in df.columns
+                                     for _, tmpl, _ in EEG_COLUMNS for t in tmpl)]
+    if not bands:
+        return None
+    sub_eeg = new_figure((ROW_HEIGHT_IN + ROW_GAP_IN) * len(bands) + 1.0)   # + headings, x-label, legend
+
+    axes = sub_eeg.subplots(len(bands), len(EEG_COLUMNS), squeeze=False)
+    sub_eeg.supylabel(Y_LABEL, fontsize=8)
+
+    for c, (heading, templates, overlay) in enumerate(EEG_COLUMNS):
+        # shared x-range per column (all bands, L and R pooled)
+        col_data = {b: [clean(df[t.format(b=b)], positive=True)
+                        for t in templates if t.format(b=b) in df.columns] for b in bands}
+        lo, hi = clip_range([a for arrs in col_data.values() for a in arrs], log=True)
+        bins = np.logspace(np.log10(lo), np.log10(hi), N_BINS + 1)
+
+        for r, band in enumerate(bands):
+            ax = axes[r, c]
+            arrays = col_data[band]
+            if not arrays:
+                ax.set_visible(False)
+                continue
+            if lo <= 1 <= hi:
+                ax.axvline(1.0, color=REF_GREY, linewidth=0.75, zorder=0)
+            colors = [COLOR_L, COLOR_R] if overlay else [COLOR_SINGLE]
+            for x, color in zip(arrays, colors):
+                draw_hist(ax, x, bins, color, lo, hi, fill=not overlay)
+
+            set_log_axis(ax, lo, hi)
+            style_axis(ax)
+            if overlay and len(arrays) == 2:
+                median_label(ax, [("L", np.median(arrays[0])), ("R", np.median(arrays[1]))])
+            else:
+                median_label(ax, [("", np.median(arrays[0]))])
+            if r == 0:
+                ax.set_title(heading, fontweight="bold", pad=6)
+            if r < len(bands) - 1:
+                ax.tick_params(labelbottom=False)
+            elif c == len(EEG_COLUMNS) // 2:          # one shared x-label, under the middle column
+                ax.set_xlabel(EEG_XLABEL)
+            if c == 0:
+                ax.set_ylabel(BANDS[band], fontweight="bold", rotation=0,
+                              ha="right", va="center", labelpad=6, fontsize=8)
+
+            n_out = sum(int(((x < lo) | (x > hi)).sum()) for x in arrays)
+            cols = "/".join(t.format(b=band) for t in templates)
+            log_lines.append(f"  {cols:<34} {n_out:6d} outside axis")
+
+    handles = [Line2D([], [], color=COLOR_L, linewidth=1.5, label="Left channel"),
+               Line2D([], [], color=COLOR_R, linewidth=1.5, label="Right channel"),
+               Patch(facecolor=COLOR_SINGLE, alpha=0.35, edgecolor=COLOR_SINGLE, label="L/R average"),
+               Line2D([], [], color=BLACK, linestyle=(0, (3, 2)), linewidth=1.0, label="Median"),
+               Line2D([], [], color=REF_GREY, linewidth=0.75, label="Ratio = 1")]
+    sub_eeg.legend(handles=handles, loc="outside lower center", ncols=5, frameon=False,
+                   handlelength=1.8, columnspacing=1.4, handletextpad=0.5)
+    return sub_eeg
+
+
+def build_other_figure(df: pd.DataFrame, other_cols: list[str], log_lines: list[str]):
+    """Figure 2: all non-EEG features, OTHER_N_COLS panels per row, linear axes."""
+    if not other_cols:
+        return None
+    n_rows = int(np.ceil(len(other_cols) / OTHER_N_COLS))
+    sub_oth = new_figure(OTHER_ROW_HEIGHT_IN * n_rows + 0.5)                # + legend
+
+    axes = sub_oth.subplots(n_rows, OTHER_N_COLS, squeeze=False)
+    has_ratio_line = False
+    for i, col in enumerate(other_cols):
+        ax = axes[i // OTHER_N_COLS, i % OTHER_N_COLS]
+        heading, xlabel, ratio_line = OTHER_FEATURES.get(col, (col, col, False))
+        x = clean(df[col])
+        lo, hi = clip_range([x], log=False)
+        bins = np.linspace(lo, hi, N_BINS + 1)
+        if ratio_line and lo <= 1 <= hi:
+            ax.axvline(1.0, color=REF_GREY, linewidth=0.75, zorder=0)
+            has_ratio_line = True
+        draw_hist(ax, x, bins, COLOR_SINGLE, lo, hi)
+        ax.set_xlim(lo, hi)
+        ax.xaxis.set_major_locator(MaxNLocator(4))
+        ax.xaxis.set_major_formatter(FuncFormatter(fmt_number))
+        style_axis(ax)
+        median_label(ax, [("", np.median(x))])
+        ax.set_title(heading, fontweight="bold", pad=6)
+        ax.set_xlabel(xlabel)
+        if i % OTHER_N_COLS == 0:
+            ax.set_ylabel(Y_LABEL)
+        n_out = int(((x < lo) | (x > hi)).sum())
+        log_lines.append(f"  {col:<34} {n_out:6d} outside axis")
+    for j in range(len(other_cols), n_rows * OTHER_N_COLS):
+        axes[j // OTHER_N_COLS, j % OTHER_N_COLS].set_visible(False)
+
+    handles = [Line2D([], [], color=BLACK, linestyle=(0, (3, 2)), linewidth=1.0, label="Median")]
+    if has_ratio_line:
+        handles.append(Line2D([], [], color=REF_GREY, linewidth=0.75, label="Ratio = 1"))
+    sub_oth.legend(handles=handles, loc="outside lower center", ncols=len(handles), frameon=False,
+                   handlelength=1.8, columnspacing=1.4, handletextpad=0.5)
+    return sub_oth
+
+
+# =============================================================================
+# MAIN
 # =============================================================================
 
 def input_tag(path: Path) -> str:
-    """'arousal_feature_matrix_FILTERED' -> 'FILTERED'; andere namen blijven heel."""
+    """'arousal_feature_matrix_FILTERED' -> 'FILTERED'; other names are kept whole."""
     prefix = "arousal_feature_matrix_"
     return path.stem[len(prefix):] if path.stem.startswith(prefix) else path.stem
 
@@ -207,51 +371,56 @@ def input_tag(path: Path) -> str:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, default=None,
-                        help="Pad naar een andere featurematrix (standaard: INPUT_FILE)")
+                        help="Path to another feature matrix (default: INPUT_FILE)")
     args = parser.parse_args()
 
-    out_eeg, out_other = OUT_EEG, OUT_OTHER
+    out_stem = OUT_NAME
     if args.input:
         path = args.input
         if not path.exists():
-            print(f"Featurematrix niet gevonden: {path}")
+            print(f"Feature matrix not found: {path}")
             return
-        tag = input_tag(path)
-        out_eeg = OUT_EEG.with_name(f"{OUT_EEG.stem}_{tag}{OUT_EEG.suffix}")
-        out_other = OUT_OTHER.with_name(f"{OUT_OTHER.stem}_{tag}{OUT_OTHER.suffix}")
+        out_stem = f"{OUT_NAME}_{input_tag(path)}"
     else:
         path = INPUT_FILE if INPUT_FILE.exists() else FALLBACK_FILE
         if not path.exists():
-            print(f"Geen featurematrix gevonden in {EVENTS_DIR}")
+            print(f"No feature matrix found in {EVENTS_DIR}")
             return
         if path == FALLBACK_FILE:
-            print(f"LET OP: {INPUT_FILE.name} niet gevonden, gebruik {FALLBACK_FILE.name}")
+            print(f"NOTE: {INPUT_FILE.name} not found, using {FALLBACK_FILE.name}")
 
     df = load_feature_matrix(path)
     feature_cols = [c for c in df.columns
                     if c not in NON_FEATURE_COLUMNS and pd.api.types.is_numeric_dtype(df[c])]
     if not feature_cols:
-        print("Geen numerieke features gevonden. Kolommen zoals ingelezen:")
+        print("No numeric features found. Columns as read:")
         print(list(df.columns))
         return
 
-    eeg_cols = [f"{m.split('_', 1)[0]}_{b}_{m.split('_', 1)[1]}" for b in BANDS for m in EEG_METRICS]
-    other_cols = [c for c in feature_cols if c not in eeg_cols]
+    eeg_cols = {t.format(b=b) for b in BANDS for _, tmpl, _ in EEG_COLUMNS for t in tmpl}
+    other_cols = [c for c in OTHER_FEATURES if c in feature_cols]                     # fixed order
+    other_cols += [c for c in feature_cols if c not in eeg_cols and c not in other_cols]
 
-    print(f"Ingeladen: {path.name} - {len(df)} events, {len(feature_cols)} features")
+    print(f"Loaded: {path.name} - {len(df)} events, {len(feature_cols)} features (font: {FONT})")
 
-    out_eeg.parent.mkdir(parents=True, exist_ok=True)
-    out_other.parent.mkdir(parents=True, exist_ok=True)
+    log_lines: list[str] = []
+    figures = {
+        "eeg": build_eeg_figure(df, log_lines),
+        "other": build_other_figure(df, other_cols, log_lines),
+    }
 
-    fig1 = figure_eeg_bands(df, len(df), path.name)
-    fig1.savefig(out_eeg, dpi=DPI)
-    plt.close(fig1)
-    print(f"Opgeslagen: {out_eeg}")
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    for name, fig in figures.items():
+        if fig is None:
+            continue
+        for ext in ("png", "pdf"):
+            out = OUT_DIR / f"{out_stem}_{name}.{ext}"
+            fig.savefig(out, dpi=DPI, bbox_inches="tight", pad_inches=OUTER_MARGIN_IN)
+            print(f"Saved: {out}")
+        plt.close(fig)
 
-    fig2 = figure_other(df, other_cols, len(df), path.name)
-    fig2.savefig(out_other, dpi=DPI)
-    plt.close(fig2)
-    print(f"Opgeslagen: {out_other}")
+    print(f"\nEvents outside the displayed x-range ({CLIP_PCT[0]:g}th-{CLIP_PCT[1]:g}th percentile):")
+    print("\n".join(log_lines))
 
 
 if __name__ == "__main__":

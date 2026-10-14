@@ -40,10 +40,11 @@ import pandas as pd
 # CONFIGURATIE
 # =============================================================================
 
-EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
+EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
+                  r"\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
 
-INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_NO_NA.csv"
-OUTPUT_FILE = EVENTS_DIR / "arousal_feature_SUMMARY.csv"
+INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_ORIGIN_clipped.csv"
+OUTPUT_FILE = EVENTS_DIR / "arousal_feature_ORIGIN_clipped_SUMMARY.csv"
 
 NON_FEATURE_COLUMNS = [
     "subject_id", "group", "night_id", "stage_rk", "event_idx",

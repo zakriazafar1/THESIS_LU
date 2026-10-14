@@ -48,16 +48,18 @@ DEFAULT_OUTDIR = BASE / "4. clustering" / "2. GMM"
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-FEATURES = [
-    "mean_delta_ratio",
-    "mean_theta_ratio",
-    "mean_alpha_ratio",
-    "mean_sigma_ratio",
-    "mean_beta_ratio",
-    "duration_sec",
-    "oxy_amp_ratio",
-    "motion_rms",
-]
+# FEATURES = [
+#    "mean_delta_ratio",
+#    "mean_theta_ratio",
+#    "mean_alpha_ratio",
+#    "mean_sigma_ratio",
+#    "mean_beta_ratio",
+#    "duration_sec",
+#    "oxy_amp_ratio",
+#    "motion_rms",
+#]
+
+FEATURES = ["PC1", "PC2", "PC3", "PC4", "PC5"]
 ID_COLS = ["subject_id", "group", "night_id", "event_idx", "stage_rk"]
 
 K_MAX = 10

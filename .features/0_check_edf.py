@@ -3,13 +3,12 @@
 .check_edf.py 
 
 Print per kanaal in een EDF-bestand de eenheid (physical_dimension) 
-en het bereik (physical_min/max, digital_min/max), zodat je weet 
-welke schaalfactor er nodig is voor dX/dY/dZ.
+en het bereik (physical_min/max, digital_min/max).
 
 Gebruik:
   python .check_edf.py --edf "<pad naar .edf>"
-  python .check_edf.py --edf "<pad naar .edf>" --channels dX dY dZ
-  python .check_edf.py --edf "<pad naar .edf>" --channels dX dY dZ --preview 5
+  python .check_edf.py --edf "<pad naar .edf>" --channels dX EEG-R
+  python .check_edf.py --edf "<pad naar .edf>" --channels dX EEG-R --preview 5
 =============================================================================
 """
 
