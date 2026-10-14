@@ -56,8 +56,7 @@ OUTPUT_DIR = BASE / r"reduced feature matrix"
 
 METADATA_COLS = [
     "subject_id", "group", "night_id", "event_idx",
-    "start_sec", "end_sec", "sec_prev_event",
-    "stage_rk",
+    "start_sec", "end_sec", "stage_rk",
 ]
 
 # Kolommen die samen één event uniek identificeren 
