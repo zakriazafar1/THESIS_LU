@@ -50,6 +50,51 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
+from matplotlib.colors import is_color_like
+
+# Vaste kleur per clusternummer, gelijk in elke run (noise = -1 blijft zoals in 4_hdbscan.py)
+FIXED_CLUSTER_COLORS = {
+    0: "#1f77b4",  # blauw
+    1: "#2ca02c",  # groen
+    2: "#ff7f0e",  # oranje
+    3: "#d62728",  # rood
+    4: "#e377c2",  # roze
+    5: "#8c564b",  # bruin
+    6: "#9467bd",  # paars
+}
+
+
+def fix_cluster_colors(orig_style_map):
+    """Wrapt _style_map uit 4_hdbscan.py en zet cluster 0-6 op een vaste kleur."""
+    def _recolor(v, c):
+        if isinstance(v, str) and is_color_like(v):
+            return c
+        if isinstance(v, dict):
+            v = dict(v)
+            keys = [k for k in ("color", "c", "facecolor", "markerfacecolor") if k in v]
+            for k in keys:
+                v[k] = c
+            if not keys:
+                v["color"] = c
+            return v
+        if isinstance(v, (tuple, list)):
+            v = list(v)
+            for i, item in enumerate(v):
+                if isinstance(item, str) and is_color_like(item):
+                    v[i] = c
+                    break
+            return tuple(v)
+        return v
+
+    def wrapper(labels):
+        styles = orig_style_map(labels)
+        if not isinstance(styles, dict):
+            print("Waarschuwing: _style_map geeft geen dict terug -- kleuren niet aangepast.")
+            return styles
+        return {k: (_recolor(v, FIXED_CLUSTER_COLORS[int(k)])
+                    if int(k) in FIXED_CLUSTER_COLORS else v)
+                for k, v in styles.items()}
+    return wrapper
 
 # =============================================================================
 # 4_hdbscan.py INLADEN (naam begint met een cijfer -> via importlib)

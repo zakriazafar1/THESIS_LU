@@ -25,8 +25,10 @@ What the script produces:
          sqrt(eigenvalue); easier to interpret: "how strongly is this feature
          related to this PC")
      + heatmap of the correlations.
-  3. Cumulative explained variance plot (with a 95% reference line), the
-     chosen number of PCs marked.
+     Features are always shown in FEATURE_ORDER (5 spectral bands, PPG,
+     head movement, duration), in the CSVs as well as in the figures.
+  3. Cumulative explained variance plot (with a VARIANCE_REF% reference
+     line), the chosen number of PCs marked.
   4. Check: correlation matrix of the PC scores (all PCs).
        - Pearson: should be ~0 off the diagonal by construction (PCA makes the
          components linearly uncorrelated). Deviations > ~1e-10 mean something
@@ -51,7 +53,8 @@ Usage:
   python 3_pca.py                         # DEFAULT PCs, without and with whitening
   python 3_pca.py --whiten no             # only without whitening
   python 3_pca.py --whiten yes            # only with whitening
-  python 3_pca.py --n-components 0.95     # as many PCs as needed for 95%
+  python 3_pca.py --n-components 0.90     # as many PCs as needed for 90%
+  python 3_pca.py --n-components 6        # fixed number of PCs (sensitivity check)
 =============================================================================
 """
 
@@ -83,7 +86,17 @@ METADATA_COLS = [
     "stage_rk",
 ]
 
-N_COMPONENTS_DEFAULT = 0.945  # int = number of PCs, float < 1 = target cumulative variance
+# Order of the features in all tables and figures
+FEATURE_ORDER = [
+    "mean_delta_ratio", "mean_theta_ratio", "mean_alpha_ratio",
+    "mean_sigma_ratio", "mean_beta_ratio",
+    "oxy_amp_ratio",
+    "motion_rms",
+    "duration_sec",
+]
+
+N_COMPONENTS_DEFAULT = 0.90  # int = number of PCs, float < 1 = target cumulative variance
+VARIANCE_REF = 90            # % reference line in the scree plot
 RANDOM_STATE = 2554542
 
 FIG_DPI = 300
@@ -122,11 +135,10 @@ mpl.rcParams.update({
     "svg.fonttype": "none",
 })
 
-BAND_NAMES = {"delta": "Delta", "theta": "Theta", "alpha": "Alpha",
-              "sigma": "Sigma", "beta": "Beta"}
+SIDE_NAMES = {"mean": "Mean", "L": "Left", "R": "Right"}
 SPECIAL_LABELS = {
     "duration_sec": "Duration",
-    "oxy_amp_ratio": "PPG amplitude ratio",
+    "oxy_amp_ratio": "PPG ratio",
     "motion_rms": "Head movement RMS",
 }
 
@@ -134,8 +146,8 @@ SPECIAL_LABELS = {
 def pretty_label(name: str) -> str:
     """
     Readable feature name for figures, e.g.
-      L_delta_peak_ratio -> 'Delta peak ratio (L)'
-      mean_alpha_ratio   -> 'Alpha ratio (mean)'
+      mean_alpha_ratio   -> 'Mean alpha ratio'
+      L_delta_peak_ratio -> 'Left delta peak ratio'
     """
     if name in SPECIAL_LABELS:
         return SPECIAL_LABELS[name]
@@ -143,8 +155,17 @@ def pretty_label(name: str) -> str:
     if m:
         side, band, peak = m.groups()
         kind = "peak ratio" if peak else "ratio"
-        return f"{BAND_NAMES[band]} {kind} ({side})"
+        return f"{SIDE_NAMES[side]} {band} {kind}"
     return name.replace("_", " ")
+
+
+def order_features(features: list[str]) -> list[str]:
+    """Features in FEATURE_ORDER first; unknown features appended at the end."""
+    known = [f for f in FEATURE_ORDER if f in features]
+    rest = [f for f in features if f not in FEATURE_ORDER]
+    if rest:
+        print(f"[NOTE] features not in FEATURE_ORDER, placed at the end: {rest}")
+    return known + rest
 
 
 def apa_corr(v: float) -> str:
@@ -169,7 +190,7 @@ def panel_letter(ax, letter: str, x: float = -0.12) -> None:
 
 
 # =============================================================================
-# SECTION 1 — LOADING
+# STEP 1: LOADING
 # =============================================================================
 
 def read_csv_robust(path: Path) -> pd.DataFrame:
@@ -191,7 +212,7 @@ def read_csv_robust(path: Path) -> pd.DataFrame:
 
 
 def parse_n_components(value: str, n_features: int) -> int | float:
-    """'5' -> 5 PCs; '0.95' -> target cumulative variance."""
+    """'5' -> 5 PCs; '0.90' -> target cumulative variance."""
     v = float(value)
     if 0 < v < 1:
         return v
@@ -202,7 +223,7 @@ def parse_n_components(value: str, n_features: int) -> int | float:
 
 
 # =============================================================================
-# SECTION 2 — PCA ON ALL COMPONENTS (eigenvalues + loadings)
+# STEP 2: PCA
 # =============================================================================
 
 def fit_full_pca(X: pd.DataFrame) -> tuple[PCA, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -243,13 +264,13 @@ def resolve_k(ev: pd.DataFrame, n_components: int | float) -> int:
 
 
 # =============================================================================
-# SECTION 3 — PLOTS
+# STEP 3: PLOTS
 # =============================================================================
 
 def plot_scree(ev: pd.DataFrame, k: int, out_path: Path) -> None:
     """
-    Cumulative explained variance per number of PCs, with a dotted 95%
-    reference line; the chosen number of PCs is marked.
+    Cumulative explained variance per number of PCs, with a dotted
+    VARIANCE_REF% reference line; the chosen number of PCs is marked.
     """
     x = np.arange(1, len(ev) + 1)
     xlabels = [str(i) for i in x]
@@ -257,7 +278,7 @@ def plot_scree(ev: pd.DataFrame, k: int, out_path: Path) -> None:
 
     cum = ev["cum_pct_variance"].to_numpy()
     ax2.plot(x, cum, color=LINE_COLOR, lw=1.8, marker="o", ms=5, zorder=3)
-    for lvl in (95,):
+    for lvl in (VARIANCE_REF,):
         ax2.axhline(lvl, color=REF_COLOR, ls=":", lw=1, zorder=1)
         ax2.text(len(ev) + 0.45, lvl, f"{lvl}%", va="center", ha="left", fontsize=8,
                  color=REF_COLOR)
@@ -282,6 +303,7 @@ def plot_loadings(corr: pd.DataFrame, ev: pd.DataFrame, k: int, out_path: Path) 
     """
     Heatmap of the feature-PC correlations for all PCs. The retained PCs are
     separated from the others by a red line and labelled above the heatmap.
+    Row order follows the column order of corr (= FEATURE_ORDER).
     """
     data = corr.copy()
     data.index = [pretty_label(c) for c in data.index]
@@ -301,7 +323,7 @@ def plot_loadings(corr: pd.DataFrame, ev: pd.DataFrame, k: int, out_path: Path) 
     ax.set_xticklabels(xlabels, rotation=0, fontsize=8)
     ax.tick_params(axis="both", length=0)
     ax.tick_params(axis="y", labelsize=9, rotation=0)
-    ax.set_xlabel("Principal Components (with % explained variance)")
+    ax.set_xlabel("Principal components (with % explained variance)")
     ax.set_ylabel("")
     for s in ax.spines.values():
         s.set_visible(False)
@@ -319,7 +341,7 @@ def plot_loadings(corr: pd.DataFrame, ev: pd.DataFrame, k: int, out_path: Path) 
 
 
 # =============================================================================
-# SECTION 4 — CHECK: CORRELATION BETWEEN THE PCs
+# STEP 4: CORRELATION BETWEEN THE PCs
 # =============================================================================
 
 def pc_correlations(X: pd.DataFrame, full: PCA) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -383,7 +405,7 @@ def plot_pc_correlations(pear: pd.DataFrame, spear: pd.DataFrame, k: int, out_pa
 
 
 # =============================================================================
-# SECTION 5 — SCORES (with / without whitening)
+# STEP 5: SCORES (with / without whitening)
 # =============================================================================
 
 def compute_scores(X: pd.DataFrame, full: PCA, k: int, whiten: bool) -> pd.DataFrame:
@@ -408,7 +430,7 @@ def main():
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--n-components", default=N_COMPONENTS_DEFAULT,
-                        help="Number of PCs (e.g. 5) or target fraction of variance (e.g. 0.95)")
+                        help="Number of PCs (e.g. 5) or target fraction of variance (e.g. 0.90)")
     parser.add_argument("--whiten", choices=["no", "yes", "both"], default="both",
                         help="Scores without whitening, with, or both (default)")
     args = parser.parse_args()
@@ -417,7 +439,7 @@ def main():
 
     df = read_csv_robust(args.input)
     meta = [c for c in METADATA_COLS if c in df.columns]
-    features = [c for c in df.columns if c not in METADATA_COLS]
+    features = order_features([c for c in df.columns if c not in METADATA_COLS])
     X = df[features].replace([np.inf, -np.inf], np.nan)
     n_nan = int(X.isna().any(axis=1).sum())
     if n_nan:
@@ -439,6 +461,11 @@ def main():
     print(f"\nChosen: {k} PCs = {ev['cum_pct_variance'].iloc[k - 1]:.1f}% of variance.")
     print("\nLoadings as correlation feature <-> PC (all PCs):")
     print(corr.round(2).to_string())
+
+    # communalities of the retained PCs (h2 column for the results table)
+    h2 = (corr.iloc[:, :k] ** 2).sum(axis=1)
+    print(f"\nCommunalities h2 over the {k} retained PCs:")
+    print(h2.rename(index=pretty_label).round(2).to_string())
 
     # --- Step 3: plots ---
     plot_scree(ev, k, out_dir / "pca_screeplot.png")

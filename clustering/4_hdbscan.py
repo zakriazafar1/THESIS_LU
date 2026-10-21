@@ -51,13 +51,26 @@ Final result:
   size and how many different subjects it contains (a "cluster" coming from a
   few people is probably not an arousal subtype).
 
+Cluster colours:
+  Colour and marker are tied to the cluster NUMBER (0 = blue, 1 = green,
+  2 = orange, 3 = purple, 4 = pink, 5 = amber, 6 = red), so they are the same
+  in every run and every figure. Noise (-1) is always grey.
+
 Usage:
   python 4_hdbscan.py                          # all 3 runs, default grid
   python 4_hdbscan.py --allow-single-cluster   # all 3 runs, saved as <tag>_single
   python 4_hdbscan.py --quick                  # small grid, quick check
   python 4_hdbscan.py --runs whitened          # only selected run(s)
   python 4_hdbscan.py --final 130 25 eom       # fixed final configuration (all runs)
-  python 4_hdbscan.py --plot-only              # only redraw figures from saved labels
+  python 4_hdbscan.py --output-dir             # other output folder (for every mode)
+
+  # Only redraw figures from saved hdbscan_final_labels.csv (no fitting):
+  python 4_hdbscan.py --plot-only              # EVERY subfolder of the output dir
+                                               # that contains hdbscan_final_labels.csv
+  python 4_hdbscan.py --plot-only --runs whitened unwhitened
+  python 4_hdbscan.py --plot-only --runs whitened --allow-single-cluster   # whitened_single
+  python 4_hdbscan.py --plot-only --tag my_custom_tag
+  python 4_hdbscan.py --plot-only --output-dir "D:\\andere\\map"
 
 Output (in OUTPUT_DIR/<tag>[_single]):
   hdbscan_grid.csv                  -- every configuration
@@ -94,20 +107,24 @@ except ImportError:
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-
 BASE = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2"
-)
-PCA_DIR = BASE / r"4. clustering\3. pca"
-REDUCED_INPUT = BASE / r"reduced feature matrix\arousal_features_reduced_scaled.csv"
-OUTPUT_DIR = BASE / r"4. clustering\4. hdbscan"
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
+# PCA_DIR = BASE / r"4. clustering\3. pca"
+# REDUCED_INPUT = BASE / r"reduced feature matrix\arousal_features_reduced_scaled.csv"
+# OUTPUT_DIR = BASE / r"4. clustering\4. hdbscan"
+
+# PATHS TO CENTERED DATA 
+PCA_DIR = BASE / r"5. clustering_centered/2. pca centered"
+REDUCED_INPUT = BASE / r"centered feature matrix\arousal_features_reduced_scaled_centered_participant.csv"
+OUTPUT_DIR = BASE / r"5. clustering_centered/3. hdbscan centered"
 
 # Number of PCs in the PCA score files (pca_scores_<k>pc_*.csv).
 # None = detect automatically (if there is exactly one file per variant).
 PCA_N_COMPONENTS = 5 
 
 # The three runs, in this order. Output goes to OUTPUT_DIR/<tag>.
-RUN_TAGS = ["whitened", "unwhitened", "reduced_features"]
+# RUN_TAGS = ["whitened", "unwhitened", "reduced_features"]
+RUN_TAGS = ["whitened_centered", "unwhitened_centered", "features_8_centered"]  
 
 # Full grid.
 DEFAULT_MIN_CLUSTER_SIZE = [65, 130, 260, 650]
@@ -142,8 +159,8 @@ METADATA_COLS = [
 PC_LABELS = {
     "PC1": "PC1: overall spectral activation",
     "PC2": "PC2: event duration",
-    "PC3": "PC3: head movement",
-    "PC4": "PC4: contrast PPG vs. duration",
+    "PC3": "PC3: contrast PPG vs. duration",
+    "PC4": "PC4: head movement",
     "PC5": "PC5: contrast slow vs. fast frequencies",
     "mean_delta_ratio": "Mean delta ratio ($z$)",
     "mean_theta_ratio": "Mean theta ratio ($z$)",
@@ -165,9 +182,16 @@ FIG_DPI = 300
 # APA 7 FIGURE STYLE
 # =============================================================================
 
-# Fixed categorical order (validated palette); every cluster also has its own marker.
-CLUSTER_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7", "#e87ba4",
-                  "#008300", "#eda100", "#e34948"]
+# Fixed colour + marker per CLUSTER NUMBER (cluster 0 = index 0, etc.),
+# identical in every run and every figure.
+CLUSTER_COLORS = ["#2a78d6",  # 0 blue
+                  "#1baf7a",  # 1 green
+                  "#eb6834",  # 2 orange
+                  "#4a3aa7",  # 3 purple
+                  "#e87ba4",  # 4 pink
+                  "#eda100",  # 5 amber
+                  "#e34948",  # 6 red
+                  "#008300"]  # 7 dark green (spare)
 CLUSTER_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*"]
 NOISE_COLOR = "#C4C4C4"
 TEXT_COLOR = "#000000"
@@ -178,11 +202,11 @@ POINT_ALPHA = 0.45
 mpl.rcParams.update({
     "font.family": "sans-serif",
     "font.sans-serif": ["Arial", "Helvetica", "Liberation Sans", "DejaVu Sans"],
-    "font.size": 10,
+    "font.size": 12,
     "axes.labelsize": 10,
     "xtick.labelsize": 9,
     "ytick.labelsize": 9,
-    "legend.fontsize": 9,
+    "legend.fontsize": 10,
     "axes.edgecolor": TEXT_COLOR,
     "axes.labelcolor": TEXT_COLOR,
     "xtick.color": TEXT_COLOR,
@@ -275,6 +299,28 @@ def build_runs(args) -> list[tuple[str, Path]]:
         "reduced_features": lambda: args.reduced_input,
     }
     return [(tag + suffix, inputs[tag]()) for tag in args.runs]
+
+
+def build_plot_only_runs(args, runs_explicit: bool) -> list[tuple[str, None]]:
+    """
+    Which subfolders of the output dir to redraw with --plot-only:
+      --tag X          -> only X (+ '_single' with --allow-single-cluster)
+      --runs a b       -> only those runs (+ '_single' with --allow-single-cluster)
+      neither          -> every direct subfolder that contains hdbscan_final_labels.csv
+    """
+    if not args.output_dir.exists():
+        sys.exit(f"Output dir does not exist: {args.output_dir}")
+    suffix = "_single" if args.allow_single_cluster else ""
+    if args.tag:
+        tags = [args.tag + suffix]
+    elif runs_explicit:
+        tags = [t + suffix for t in args.runs]
+    else:
+        tags = sorted(p.name for p in args.output_dir.iterdir()
+                      if p.is_dir() and (p / "hdbscan_final_labels.csv").exists())
+    if not tags:
+        sys.exit(f"No subfolders with hdbscan_final_labels.csv found in {args.output_dir}")
+    return [(t, None) for t in tags]
 
 
 # =============================================================================
@@ -431,18 +477,24 @@ def _style_axes(ax) -> None:
 
 
 def _cluster_ids(labels: pd.Series) -> list[int]:
-    """Clusters sorted by size (largest gets colour 1), without noise."""
+    """Clusters sorted by size (largest first), without noise. Used for drawing order."""
     counts = labels[labels != -1].value_counts()
     return list(counts.index)
 
 
 def _style_map(labels: pd.Series) -> dict:
+    """
+    Colour and marker follow the cluster NUMBER, so they are consistent across runs.
+    The dict order stays large -> small, so small clusters are drawn on top
+    in _scatter_pair.
+    """
     ids = _cluster_ids(labels)
-    if len(ids) > len(CLUSTER_COLORS):
-        print(f"[NOTE] {len(ids)} clusters but only {len(CLUSTER_COLORS)} colours -- "
-              "the smallest clusters reuse colours.")
-    return {c: (CLUSTER_COLORS[i % len(CLUSTER_COLORS)], CLUSTER_MARKERS[i % len(CLUSTER_MARKERS)])
-            for i, c in enumerate(ids)}
+    if ids and max(ids) >= len(CLUSTER_COLORS):
+        print(f"[NOTE] cluster {max(ids)} but only {len(CLUSTER_COLORS)} colours -- "
+              "higher cluster numbers reuse colours.")
+    return {c: (CLUSTER_COLORS[int(c) % len(CLUSTER_COLORS)],
+                CLUSTER_MARKERS[int(c) % len(CLUSTER_MARKERS)])
+            for c in ids}
 
 
 def _legend_handles(labels: pd.Series, styles: dict) -> list:
@@ -574,20 +626,20 @@ def plot_pairs(df: pd.DataFrame, pc_cols: list[str], out_dir: Path) -> None:
                 _scatter_pair(ax, df, xj, yi, styles, annotate=False, size=2.5)
             _style_axes(ax)
             if i == k - 1:
-                ax.set_xlabel(_short_label(xj), fontsize=9)
+                ax.set_xlabel(_short_label(xj), fontsize=10)
             else:
                 ax.set_xticklabels([])
             if j == 0 and i > 0:
-                ax.set_ylabel(_short_label(yi), fontsize=9)
+                ax.set_ylabel(_short_label(yi), fontsize=10)
             elif j > 0:
                 ax.set_yticklabels([])
 
     # legend (+ PC key for PC inputs) in the empty upper-right corner
     fig.legend(handles=_legend_handles(df["cluster"], styles), loc="upper right",
-               bbox_to_anchor=(0.98, 0.98), frameon=False, fontsize=10)
+               bbox_to_anchor=(0.98, 0.98), frameon=False, fontsize=13)
     if pc_cols[0].upper().startswith("PC"):
         pc_txt = "\n".join(_axis_label(pc) for pc in pc_cols)
-        fig.text(0.98, 0.72, pc_txt, ha="right", va="top", fontsize=9, color=MUTED_COLOR)
+        fig.text(0.98, 0.72, pc_txt, ha="right", va="top", fontsize=13, color=MUTED_COLOR)
     fig.tight_layout()
     save_figure(fig, out_dir / "fig_clusters_pairs.png")
     print(f"Figure saved: {out_dir / 'fig_clusters_pairs.png'} (+ .pdf)")
@@ -607,16 +659,21 @@ def make_plots(df: pd.DataFrame, pc_cols: list[str], out_dir: Path) -> None:
 
 def run_one(args, tag: str, input_path: Path) -> dict:
     print("\n" + "=" * 78)
-    print(f"RUN: {tag}   (allow_single_cluster={args.allow_single_cluster})")
+    print(f"RUN: {tag}" + ("   (plot only)" if args.plot_only
+                           else f"   (allow_single_cluster={args.allow_single_cluster})"))
     print("=" * 78)
     out_dir = args.output_dir / tag
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     if args.plot_only:
-        df_lab = read_csv_robust(out_dir / "hdbscan_final_labels.csv")
+        labels_path = out_dir / "hdbscan_final_labels.csv"
+        if not labels_path.exists():
+            print(f"[SKIP] {labels_path} not found -- run without --plot-only first.")
+            return {"tag": tag, "redrawn": False}
+        df_lab = read_csv_robust(labels_path)
         make_plots(df_lab, get_feature_cols(df_lab), out_dir)
-        return {"tag": tag}
+        return {"tag": tag, "redrawn": True}
 
+    out_dir.mkdir(parents=True, exist_ok=True)
     df, pc_cols = load_scores(input_path)
     X = df[pc_cols].to_numpy()
     subjects = df["subject_id"].astype(str).to_numpy()
@@ -701,16 +758,20 @@ def run_one(args, tag: str, input_path: Path) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--runs", nargs="+", choices=RUN_TAGS, default=RUN_TAGS,
-                        help="Which runs to do (default: all three)")
+    parser.add_argument("--runs", nargs="+", choices=RUN_TAGS, default=None,
+                        help="Which runs to do (default: all three; with --plot-only: "
+                             "every subfolder that has saved labels)")
     parser.add_argument("--pca-dir", type=Path, default=PCA_DIR)
     parser.add_argument("--n-pcs", type=int, default=PCA_N_COMPONENTS,
                         help="Number of PCs in the PCA score file names (default: auto-detect)")
     parser.add_argument("--reduced-input", type=Path, default=REDUCED_INPUT)
     parser.add_argument("--input", type=Path, default=None,
                         help="Optional: one custom input file instead of the three runs")
-    parser.add_argument("--tag", default=None, help="Tag for --input (default: file name)")
-    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    parser.add_argument("--tag", default=None,
+                        help="Tag for --input (default: file name); with --plot-only: "
+                             "redraw only this subfolder")
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR,
+                        help=f"Output folder (default: {OUTPUT_DIR}); also used by --plot-only")
     parser.add_argument("--min-cluster-size", type=int, nargs="+", default=DEFAULT_MIN_CLUSTER_SIZE)
     parser.add_argument("--min-samples", type=int, nargs="+", default=DEFAULT_MIN_SAMPLES)
     parser.add_argument("--selection", nargs="+", choices=["eom", "leaf"], default=DEFAULT_SELECTION)
@@ -721,11 +782,29 @@ def main():
                         help="Number of top configurations for the stability check")
     parser.add_argument("--n-resamples", type=int, default=N_RESAMPLES)
     parser.add_argument("--plot-only", action="store_true",
-                        help="Only redraw the figures from hdbscan_final_labels.csv per run")
+                        help="Only redraw the figures from hdbscan_final_labels.csv "
+                             "(no fitting). Without --runs/--tag: every subfolder of the "
+                             "output dir that contains that file.")
     parser.add_argument("--final", nargs=3, metavar=("MCS", "MS", "METHOD"),
                         help="Fixed final configuration for every run, e.g. --final 130 25 eom "
                              "(default: the best-ranked one per run)")
     args = parser.parse_args()
+
+    runs_explicit = args.runs is not None
+    if args.runs is None:
+        args.runs = RUN_TAGS
+
+    # --- plot only: redraw figures from saved labels, nothing else ---
+    if args.plot_only:
+        print(f"Plot only -- output dir: {args.output_dir}")
+        runs = build_plot_only_runs(args, runs_explicit)
+        results = [run_one(args, tag, None) for tag, _ in runs]
+        done = [r["tag"] for r in results if r["redrawn"]]
+        skipped = [r["tag"] for r in results if not r["redrawn"]]
+        print("\nFigures redrawn for: " + (", ".join(done) if done else "(none)"))
+        if skipped:
+            print("Skipped (no labels file): " + ", ".join(skipped))
+        return
 
     if args.quick:
         args.min_cluster_size = QUICK_MIN_CLUSTER_SIZE
@@ -735,14 +814,9 @@ def main():
         print("--quick: small grid.\n")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    runs = build_runs(args) if not args.plot_only else [
-        (t + ("_single" if args.allow_single_cluster else ""), None) for t in args.runs]
+    runs = build_runs(args)
 
     overview = [run_one(args, tag, path) for tag, path in runs]
-
-    if args.plot_only:
-        print("\nFigures redrawn for: " + ", ".join(t for t, _ in runs))
-        return
 
     ov = pd.DataFrame(overview)
     ov_name = f"hdbscan_runs_overview{'_single' if args.allow_single_cluster else ''}.csv"
