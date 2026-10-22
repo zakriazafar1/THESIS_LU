@@ -1,25 +1,18 @@
 """
 =============================================================================
-4.2_cluster_descriptives.py
+4.1_hdbscan_descriptives.py
 
 Descriptive statistics of the HDBSCAN clusters on the ORIGINAL (untransformed,
 unscaled) features.
-
-The clusters were formed on PCA scores / scaled features (4_hdbscan.py); here
-each event's cluster label is linked back to the original reduced feature
-matrix, and the clusters are described in the original units.
-
-Descriptives only (no significance tests: the clusters were formed to differ,
-so tests between them would be circular). Because the features are skewed,
-each feature is summarised as median (interquartile range, Q1–Q3). Per group
-the number of events (and %) and the number of participants are reported.
+Because the features are skewed, each feature is summarised as median 
+(interquartile range, Q1–Q3). Per group the number of events (and %) 
+and the number of participants are reported. 
 Groups: each cluster, noise (-1, if present) and all events.
 
 Input per run (tag):
   <HDBSCAN_DIR>/<tag>/hdbscan_final_labels.csv   (output of 4_hdbscan.py)
   ORIGINAL_INPUT                                (arousal_features_reduced_original.csv)
-Linked on subject_id + night_id + event_idx; the script stops if events
-cannot be matched.
+Linked on subject_id + night_id + event_idx.
 
 Default runs: whitened, whitened_single, reduced_features, reduced_features_single.
 Runs without a labels file are skipped with a message.
@@ -29,12 +22,12 @@ Output per run in OUTPUT_DIR/<tag>:
                                              columns = groups; "Mdn (Q1–Q3)"
   cluster_descriptives_long.csv           -- the same numbers unrounded, one row
                                              per group x feature (for checking)
-  table_note.txt                          -- suggested APA table note
+  table_note.txt                          -- note for which table 
 
 Usage:
-  python 4.2_cluster_descriptives.py                         # all four runs
-  python 4.2_cluster_descriptives.py --tags whitened_single  # one or more runs
-  python 4.2_cluster_descriptives.py --tags my_run --labels path\\to\\hdbscan_final_labels.csv
+  python 4.1_hdbscan_descriptives.py            # all four runs
+  python 4.1_hdbscan_descriptives.py --tags whitened_single  # one or more runs
+  python 4.1_hdbscan_descriptives.py --tags my_run --labels path\\to\\hdbscan_final_labels.csv
 =============================================================================
 """
 
@@ -59,7 +52,7 @@ DEFAULT_TAGS = ["whitened", "whitened_single", "reduced_features", "reduced_feat
 
 EVENT_KEY = ["subject_id", "night_id", "event_idx"]
 
-# Features in table order, with a readable name (+ unit) for the table.
+# Features in table order
 FEATURES = {
     "duration_sec": "Duration (s)",
     "mean_delta_ratio": "Mean delta ratio",
@@ -71,7 +64,6 @@ FEATURES = {
     "motion_rms": "Head movement RMS",
 }
 DECIMALS = 2
-
 
 # =============================================================================
 # LOADING
@@ -140,7 +132,7 @@ def groups_in_order(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
 
 
 def describe(df: pd.DataFrame, features: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Long table (unrounded) + compact wide table (formatted strings)."""
+    """Long table (unrounded) + wide table."""
     n_total = len(df)
     long_rows, wide = [], {}
     for gname, g in groups_in_order(df):

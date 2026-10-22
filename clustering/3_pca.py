@@ -3,58 +3,39 @@
 3_pca.py
 
 PCA on the reduced, scaled arousal feature matrix
-(output of 3.3_reduce_features.py: arousal_features_reduced_scaled.csv).
+(output of 3.3_reduce_features.py).
 
 Aim: remove the correlations between the features (especially the spectral
-block theta/alpha/sigma) before HDBSCAN.
-  - PCA rotates the coordinate system so that the components are
-    uncorrelated. A rotation does not change distances; the "double counting"
-    of the spectral block then sits in PC1 (largest variance).
+block) before HDBSCAN.
   - With --whiten every retained PC gets variance 1, so every independent
-    dimension counts equally in the distances (= Mahalanobis distance in the
-    reduced space). Only defensible once the noise PCs with very small
-    eigenvalues have been dropped (--n-components), otherwise those are
-    inflated enormously.
+    dimension counts equally in the distances. Only defensible once the noise 
+    PCs with very small eigenvalues have been dropped (--n-components), otherwise 
+    those will be inflated.
 
-What the script produces:
+What the script does:
   1. All PCs (including those not retained): eigenvalue, % explained
-     variance, cumulative %  -> explained_variance.csv
+     variance, cumulative % > explained_variance.csv
   2. Loadings of all PCs:
-       - pca_loadings.csv               (eigenvectors, weight per feature)
+       - pca_loadings.csv              (eigenvectors, weight per feature)
        - pca_loading_correlations.csv   (correlation feature <-> PC = loading *
-         sqrt(eigenvalue); easier to interpret: "how strongly is this feature
-         related to this PC")
-     + heatmap of the correlations.
+         sqrt(eigenvalue) + heatmap of the correlations.
      Features are always shown in FEATURE_ORDER (5 spectral bands, PPG,
      head movement, duration), in the CSVs as well as in the figures.
-  3. Cumulative explained variance plot (with a VARIANCE_REF% reference
-     line), the chosen number of PCs marked.
+  3. Cumulative explained variance plot, the chosen number of PCs marked.
   4. Check: correlation matrix of the PC scores (all PCs).
-       - Pearson: should be ~0 off the diagonal by construction (PCA makes the
-         components linearly uncorrelated). Deviations > ~1e-10 mean something
-         is wrong (e.g. NaN rows, wrong centring).
-       - Spearman: does NOT have to be 0. Uncorrelated (linearly) is not the
-         same as independent; a Spearman rho != 0 shows that PCs still share
-         monotonic, non-linear association (e.g. due to skewed distributions
-         or outliers).
-     Whitening does not change the correlations (only the scale per PC), so
-     this applies to whitened and unwhitened scores alike.
-       -> pc_correlation_pearson.csv / pc_correlation_spearman.csv
-       -> pc_correlation_heatmap.png
+       - Pearson: should be ~0 off the diagonal by construction. Deviations 
+         mean something is wrong.
+       - Spearman: does NOT have to be 0. A Spearman corr of not 0 shows that 
+         PCs still share monotonic, non-linear association (outliers/skew)
   5. PC scores of the retained components (+ metadata), with or without
      whitening, as CSV -> input for HDBSCAN.
 
-Figures follow APA 7 style: no embedded titles (number + title go above the
-figure in the manuscript), sans-serif font, sentence-case axis labels,
-readable feature names, statistical symbols in italics, correlations without
-leading zero, panel letters in multi-panel figures, no chart junk.
-
 Usage:
-  python 3_pca.py                         # DEFAULT PCs, without and with whitening
-  python 3_pca.py --whiten no             # only without whitening
+  python 3_pca.py                 # DEFAULT PCs, without and with whitening
+  python 3_pca.py --whiten        # only without whitening
   python 3_pca.py --whiten yes            # only with whitening
   python 3_pca.py --n-components 0.90     # as many PCs as needed for 90%
-  python 3_pca.py --n-components 6        # fixed number of PCs (sensitivity check)
+  python 3_pca.py --n-components 6        # fixed number of PCs 
 =============================================================================
 """
 
@@ -145,9 +126,7 @@ SPECIAL_LABELS = {
 
 def pretty_label(name: str) -> str:
     """
-    Readable feature name for figures, e.g.
-      mean_alpha_ratio   -> 'Mean alpha ratio'
-      L_delta_peak_ratio -> 'Left delta peak ratio'
+    Readable feature name for figures
     """
     if name in SPECIAL_LABELS:
         return SPECIAL_LABELS[name]
@@ -169,10 +148,10 @@ def order_features(features: list[str]) -> list[str]:
 
 
 def apa_corr(v: float) -> str:
-    """APA format for correlations: two decimals, no leading zero (.85, −.32)."""
+    """APA format for correlations."""
     if pd.isna(v):
         return ""
-    v = 0.0 if abs(v) < 0.005 else v          # avoid '−.00' for values that round to 0
+    v = 0.0 if abs(v) < 0.005 else v          
     s = f"{v:.2f}"
     s = s.replace("0.", ".", 1) if abs(v) < 1 else s
     return s.replace("-", "\u2212")
@@ -194,7 +173,6 @@ def panel_letter(ax, letter: str, x: float = -0.12) -> None:
 # =============================================================================
 
 def read_csv_robust(path: Path) -> pd.DataFrame:
-    """CSV with automatic delimiter detection and fallback to decimal=','."""
     if not path.exists():
         raise FileNotFoundError(f"{path} does not exist -- run 3.3_reduce_features.py first.")
     df = pd.read_csv(path, sep=None, engine="python")
@@ -229,9 +207,8 @@ def parse_n_components(value: str, n_features: int) -> int | float:
 def fit_full_pca(X: pd.DataFrame) -> tuple[PCA, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     PCA with all components. Returns the model + tables for explained variance,
-    loadings (eigenvectors) and loading correlations.
-    The signs of PCs are arbitrary; they are set so that the largest absolute
-    loading per PC is positive (for readability only).
+    loadings (eigenvectors) and loading correlations. The signs of PCs are arbitrary, 
+    they are set so that the largest absolute loading per PC is positive (for readability).
     """
     pca = PCA(random_state=RANDOM_STATE).fit(X)
 
@@ -269,8 +246,7 @@ def resolve_k(ev: pd.DataFrame, n_components: int | float) -> int:
 
 def plot_scree(ev: pd.DataFrame, k: int, out_path: Path) -> None:
     """
-    Cumulative explained variance per number of PCs, with a dotted
-    VARIANCE_REF% reference line; the chosen number of PCs is marked.
+    Cumulative explained variance per number of PCs.
     """
     x = np.arange(1, len(ev) + 1)
     xlabels = [str(i) for i in x]
@@ -347,8 +323,7 @@ def plot_loadings(corr: pd.DataFrame, ev: pd.DataFrame, k: int, out_path: Path) 
 def pc_correlations(X: pd.DataFrame, full: PCA) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Pearson and Spearman correlation matrix of the scores of ALL PCs.
-    Unwhitened scores are used; whitening only changes the scale per PC,
-    so the correlations are identical with and without whitening.
+    Unwhitened scores are used.
     """
     scores = compute_scores(X, full, full.n_components_, whiten=False)
     return scores.corr(method="pearson"), scores.corr(method="spearman")
@@ -365,9 +340,6 @@ def max_offdiag(c: pd.DataFrame) -> tuple[float, str]:
 def plot_pc_correlations(pear: pd.DataFrame, spear: pd.DataFrame, k: int, out_path: Path) -> None:
     """
     Two heatmaps side by side: A = Pearson (should be ~0), B = Spearman.
-    Lower triangle including the diagonal (rows and columns both PC1..PCn);
-    red lines across the whole plot mark the boundary after the last
-    retained PC on both axes.
     """
     n = len(pear)
     fig, axes = plt.subplots(1, 2, figsize=(2 * (0.75 * n + 2.5), 0.65 * n + 2))
@@ -448,7 +420,7 @@ def main():
         X, df = X[keep], df[keep]
     print(f"{len(features)} features: {features}")
 
-    # --- Steps 1+2: full PCA ---
+    # Full PCA 
     full, ev, loadings, corr = fit_full_pca(X)
     k = resolve_k(ev, parse_n_components(args.n_components, len(features)))
 
@@ -462,16 +434,16 @@ def main():
     print("\nLoadings as correlation feature <-> PC (all PCs):")
     print(corr.round(2).to_string())
 
-    # communalities of the retained PCs (h2 column for the results table)
+    # Communalities of the retained PCs 
     h2 = (corr.iloc[:, :k] ** 2).sum(axis=1)
     print(f"\nCommunalities h2 over the {k} retained PCs:")
     print(h2.rename(index=pretty_label).round(2).to_string())
 
-    # --- Step 3: plots ---
+    # Plots 
     plot_scree(ev, k, out_dir / "pca_screeplot.png")
     plot_loadings(corr, ev, k, out_dir / "pca_loadings_heatmap.png")
 
-    # --- Step 4: check correlation between PCs ---
+    # Check correlation between PCs 
     pear, spear = pc_correlations(X, full)
     pear.to_csv(out_dir / "pc_correlation_pearson.csv")
     spear.to_csv(out_dir / "pc_correlation_spearman.csv")
@@ -487,7 +459,7 @@ def main():
     print("\nSpearman rho between PCs:")
     print(spear.round(2).to_string())
 
-    # --- Step 5: scores ---
+    # PC scores
     modes = {"no": [False], "yes": [True], "both": [False, True]}[args.whiten]
     print()
     for w in modes:

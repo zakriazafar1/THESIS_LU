@@ -1,33 +1,28 @@
 """
 2_GMM.py - Gaussian mixture models on the reduced arousal features.
 
-What the script does
---------------------
-1. Reads the reduced, standardised feature matrix (z-scores; ';'-separated CSV).
-2. Fits a full-covariance GMM for K = 1..K_MAX (N_INIT starts) on the 8 features
-   (or on PC1..PCn when the input is a PCA-score file, or on --cols)
-   and reports per K:
-     - log-likelihood, number of parameters, AIC, BIC
-     - ICL = BIC + 2 * entropy (penalises overlapping components)
+What the script does:
+1. Reads the reduced, standardised feature matrix (z-scores).
+2. Fits a full-covariance GMM for K = 1..K_MAX on the 8 features
+   (or on PC1..PCn when the input is a PCA-score file) and reports per K:
+     - log-likelihood, number of parameters, AIC, BIC, ICL
      - normalised entropy (0 = perfect separation, 1 = complete overlap)
      - mean maximum posterior probability
-     - % of events with maximum posterior >= CERTAIN_THR
+     - % of events with maximum posterior >= 0.85 
      - smallest mixing proportion
 3. Saves per-event labels + posteriors and component means for K_BIC and K_ICL.
-4. Makes two APA-style figures (PNG 300 dpi + PDF):
+4. Makes APA figures:
      - Figure A/B: BIC and ICL against K, and classification certainty against K
-     - Component profiles for K_ICL on the 8 (standardised) features
-5. All output goes to <outdir>/<tag>/, so different runs (e.g. centred vs.
-   uncentred input) are kept apart.
+     - Component profiles for K_ICL on the 8 (standardised) features/5 PCs
+5. All output goes to <outdir>/<tag>/, so different runs are kept apart
 
-Usage
------
-    python 2_GMM.py                                   # default input, tag = "features_8"
+Usage:
+    python 2_GMM.py  # default input
     python 2_GMM.py --input other.csv --tag centered_participant
     python 2_GMM.py --input other.csv --outdir other_folder --tag test
-    python 2_GMM.py --input pca_scores_5pc_unwhitened.csv --tag PCA   # PC1..PCn detected automatically
+    python 2_GMM.py --input pca_scores_5pc_unwhitened.csv --tag PCA    # PC1..PCn detected automatically
     python 2_GMM.py --input x.csv --cols PC1,PC2,PC3 --tag PC1-3       # choose columns yourself
-    python 2_GMM.py --inspect                         # data check only, no fitting
+    python 2_GMM.py --inspect # data check only, no fitting
 """
 
 import argparse
@@ -61,7 +56,7 @@ DEFAULT_FEATURES = [
     "oxy_amp_ratio",
     "motion_rms",
 ]
-FEATURES = list(DEFAULT_FEATURES)   # replaced at run time by the columns found in the input
+FEATURES = list(DEFAULT_FEATURES)   
 FEATURE_LABELS = {
     "mean_delta_ratio": "Mean delta ratio",
     "mean_theta_ratio": "Mean theta ratio",
@@ -77,12 +72,11 @@ ID_COLS = ["subject_id", "group", "night_id", "event_idx", "stage_rk"]
 K_MAX = 10
 N_INIT = 20
 SEED = 2554542
-REG_COVAR = 1e-6      # sklearn default; small ridge on the diagonal for numerical stability
+REG_COVAR = 1e-6      # sklearn default
 MAX_ITER = 1500
 CERTAIN_THR = 0.85    # threshold for a "clearly assigned" event
 
-# Colours: validated colour-blind-safe categorical palette; every series also has
-# its own marker and line style, so the figures remain readable in greyscale.
+# Colours
 C_BLUE, C_ORANGE, C_AQUA, C_VIOLET = "#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7"
 COMP_COLORS = [C_BLUE, C_ORANGE, C_AQUA, C_VIOLET, "#eda100", "#e87ba4", "#008300", "#e34948"]
 COMP_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "h"]
@@ -111,7 +105,7 @@ def load_features(path: Path, cols_arg: str | None = None) -> pd.DataFrame:
     global FEATURES
     sep = ";"
     df = pd.read_csv(path, sep=sep)
-    if df.shape[1] == 1:                         # not ';'-separated -> try ','
+    if df.shape[1] == 1:                         
         sep = ","
         df = pd.read_csv(path, sep=sep)
     if cols_arg:
@@ -201,8 +195,7 @@ def fit_one_k(X: np.ndarray, k: int) -> tuple[GaussianMixture, dict, list]:
 
 
 # ---------------------------------------------------------------------------
-# Figures (APA 7 style: no titles inside the figure, sans-serif, panel letters,
-# minimal axes, legends without frames, 300 dpi PNG + vector PDF)
+# Figures (APA style)
 # ---------------------------------------------------------------------------
 def apa_style():
     import matplotlib
@@ -231,7 +224,7 @@ def apa_style():
         "figure.facecolor": "white",
         "axes.facecolor": "white",
         "savefig.facecolor": "white",
-        "pdf.fonttype": 42,          # embed TrueType -> editable text in Word/Illustrator
+        "pdf.fonttype": 42,          
         "legend.frameon": False,
     })
     return plt
@@ -258,16 +251,16 @@ def plot_model_selection(res: pd.DataFrame, out_base: Path) -> None:
     plt = apa_style()
     from matplotlib.ticker import FuncFormatter, MaxNLocator
 
-    inner = 7  # font size inside the plotting area (ticks, legend): one step below the axis labels
+    inner = 7  # font size inside the plotting area 
 
-    # Two panels of identical size with identical margins (positions in figure fractions).
+    # Two panels of identical size and margins 
     fig = plt.figure(figsize=(6.9, 2.9))
     w, h, bottom = 0.355, 0.74, 0.17
     axA = fig.add_axes([0.095, bottom, w, h])
     axB = fig.add_axes([0.095 + w + 0.115, bottom, w, h])
     k = res["k"].to_numpy()
 
-    # A: BIC and ICL (values shown in thousands to keep tick labels short)
+    # A: BIC and ICL
     ax = axA
     ax.plot(k, res["BIC"] / 1000, color=C_BLUE, marker="o", ms=4, lw=1.3, label="BIC")
     ax.plot(k, res["ICL"] / 1000, color=C_ORANGE, marker="s", ms=4, lw=1.3, ls="--", label="ICL")
@@ -310,13 +303,12 @@ def plot_model_selection(res: pd.DataFrame, out_base: Path) -> None:
 
 
 def plot_component_profiles(df: pd.DataFrame, labels: np.ndarray, weights: np.ndarray, out_base: Path) -> None:
-    """Mean (standardised) value of each original feature per component, with 95% CI.
-    (APA: mention 'Error bars represent 95% confidence intervals' in the figure note.)"""
+    """Mean (standardised) value of each original feature per component, with 95% CI."""
     plt = apa_style()
     k = int(labels.max()) + 1
-    feats = FEATURES[::-1]                       # first feature on top
+    feats = FEATURES[::-1]                       
     y = np.arange(len(feats))
-    offsets = np.linspace(0.2, -0.2, k) if k > 1 else [0.0]   # component 1 on top within each row
+    offsets = np.linspace(0.2, -0.2, k) if k > 1 else [0.0]  
 
     from matplotlib.lines import Line2D
     fig, ax = plt.subplots(figsize=(5.2, 0.42 * len(feats) + 0.9))
@@ -389,7 +381,7 @@ def run_gmm(tag: str, X: np.ndarray, df: pd.DataFrame, outdir: Path, input_path:
         means.index = pd.Index(range(1, k + 1), name="component")
         write_csv(means.round(3), outdir / f"gmm_means_k{k}_{sel}.csv", sep=";")
 
-        # component means on the 8 original standardised features (by hard label)
+        # component means on the 8 original standardised features 
         prof = df[FEATURES].groupby(out["label"].to_numpy() + 1).mean()
         prof.insert(0, "n_events", out["label"].value_counts().sort_index().to_numpy())
         prof.index.name = "component"

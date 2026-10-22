@@ -4,7 +4,7 @@
 
 Bouwt een featurematrix (1 rij per gescoord arousal-event) vanuit:
   1. Lucija's gescoorde arousal-events  (in de sleepArchitecture map)
-  2. De ruwe EDF-kanalen van diezelfde nacht (EEG L, EEG R, dX/dY/dZ, evt. OXY_IR_AC)
+  2. De ruwe EDF-kanalen van diezelfde nacht 
 
 Verwachte mapstructuur (subject_id en night_id zijn VARIABEL, dus we zoeken
 ze dynamisch op i.p.v. hardcoded):
@@ -12,7 +12,7 @@ ze dynamisch op i.p.v. hardcoded):
   RAW_ROOT/
     GROUP/                                  bv. NSR, SAV, Prezens
       bnbd_<groep>_XXXXX/                   XXXXX = 5-cijferig subject nummer
-        bnbd_<groep>_XXXXX_T0_N#/           N# = nacht-nummer, variabel
+        bnbd_<groep>_XXXXX_T0_N#/           N# = nacht-nummer
           bnbd_<groep>_XXXXX_T0_N#_edf/
             EEG L.edf
             EEG R.edf
@@ -21,8 +21,8 @@ ze dynamisch op i.p.v. hardcoded):
             dZ.edf
             OXY_IR_AC.edf                   
           sleepArchitecture/
-            bnbd_<groep>_XXXXX_T0_N#.csv           <- hypnogram (R&K stages) 
-            bnbd_<groep>_XXXXX_T0_N#_events.csv    <- Lucija's gescoorde events
+            bnbd_<groep>_XXXXX_T0_N#.csv           <- hypnogram 
+            bnbd_<groep>_XXXXX_T0_N#_events.csv    <- Lucija's gescoorde arousals
 
 We zoeken ALLE "sleepArchitecture" mappen onder RAW_ROOT via rglob, dus het
 maakt niet uit hoe het subject-nummer of het nacht-nummer precies heet.
@@ -33,13 +33,11 @@ er toch niet is).
 BELANGRIJK:
   - De naam van het events-bestand bevat "_events" (bv. bnbd_nsr_01272_T0_N3_events.csv, 
     kolommen: event, start, stop, duration, channel)
-  - Het hypnogram-bestand heeft dezelfde naam als de nacht-map zelf, zonder
-    "_events" suffix (bv. bnbd_nsr_01272_T0_N2.csv)
-  - Draai dit script eerst met --inspect zodat je precies ziet welke bestanden
+  - Het hypnogram-bestand heeft dezelfde naam als de nacht-map zelf (bv. bnbd_nsr_01272_T0_N2.csv)
+  - Draai script eerst met --inspect zodat je precies ziet welke bestanden
     er per nacht gevonden worden, voordat je de volledige featureberekening draait.
   - event_idx loopt DOORLOPEND over de hele run (+1 per event), niet per nacht
-    opnieuw bij 0 -- zo is elk event uniek te identificeren via event_idx alleen,
-    ook over nachten heen.
+    opnieuw bij 0.
 
 Gebruik:
   python 1_feature_matrix.py --inspect --limit 5     # eerst checken
@@ -74,7 +72,7 @@ NOTCH_HZ = 50.0
 HIGHPASS_HZ = 0.1
 LOWPASS_HZ = 35.0
 
-EPOCH_SEC = 30.0                        # epoch 1 = t=0s
+EPOCH_SEC = 30.0    # epoch 1 > t=0s
 
 EEG_CHANNELS = ["EEG L", "EEG R"]      
 CHANNEL_LABELS = {"EEG L": "L", "EEG R": "R"}  # korte labels voor kolomnamen in de featurematrix
@@ -133,10 +131,6 @@ def parse_ids(night_dir: Path) -> dict:
     Parseert group / subject_id / night_id uit de mapnaam,
     ongeacht het exacte subject-nummer of nacht-nummer.
 
-    Voorbeeld: bnbd_nsr_01272_T0_N2  ->
-      group      = NSR
-      subject_id = bnbd_nsr_01272
-      night_id   = T0_N2
     """
     stem = night_dir.name
 
@@ -178,7 +172,7 @@ def find_hypnogram_file(arch_dir: Path, stem: str) -> Path | None:
 
 
 def _read_csv_flex(path: Path) -> pd.DataFrame:
-    """Leest csv, probeert zowel komma- als puntkomma-scheiding."""
+    """Leest csv."""
     try:
         df = pd.read_csv(path, sep=None, engine="python")
     except Exception:
@@ -207,10 +201,9 @@ def load_events(path: Path) -> pd.DataFrame:
 def load_hypnogram(path: Path) -> pd.DataFrame | None:
     """
     Laadt het hypnogram. Vast formaat, GEEN header:
-      kolom 1 = sleep stage per epoch (0=wake, 1, 2, 3, 5=REM)
-      kolom 2 = ongebruikt 
-    Rij N (1-based) = epoch N; epoch 1 begint bij t=0s van de opname, en elke
-    epoch duurt EPOCH_SEC seconden. Geeft None terug als het bestand niet 
+      kolom 1 = sleep stage per epoch (0, 1, 2, 3, 5)
+    Epoch 1 begint bij t=0s van de opname, en elke epoch 
+    duurt 30 seconden. Geeft None terug als het bestand niet 
     gevonden of niet leesbaar is.
     """
     if path is None:
@@ -261,8 +254,8 @@ def load_channel(edf_dir: Path, name: str) -> tuple[np.ndarray, float] | None:
     raw = mne.io.read_raw_edf(edf_path, preload=True, verbose=False)
     data = raw.get_data()[0]
 
-    if name in EEG_CHANNELS:      # of: if name in ("EEG L psg-lp", "EEG R psg-lp")
-        data = data * 1e6            # V -> µV, alleen voor EEG
+    if name in EEG_CHANNELS:  
+        data = data * 1e6     # V -> µV, alleen voor EEG
 
     return data, raw.info["sfreq"]
 
@@ -346,10 +339,8 @@ def compute_night_band_envelopes(signals: dict) -> dict:
     """
     Berekent voor elk EEG-kanaal en elke band de band-envelope over de HELE nacht,
     één keer per nacht. Wordt hergebruikt voor zowel de whole-night baseline
-    (mediaan) als de during-event statistieken (via slicing), zodat er niet
+    (mediaan) als de event statistieken (via slicing), zodat er niet
     per event opnieuw gefilterd hoeft te worden.
-
-    Key: (kanaal, band_naam) -> envelope-array (zelfde lengte als signals[kanaal])
     """
     envelopes = {}
     for ch in EEG_CHANNELS:
@@ -433,12 +424,6 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
         feats[f"mean_{band_name}_ratio"] = np.mean(ratios) if ratios else np.nan
 
     # Motion features (accelerometer), als proxy voor beweging tijdens het event.
-    # We combineren dX/dY/dZ eerst tot één vectormagnitude per sample
-    # en nemen PAS DAARNA de RMS over de tijd, i.p.v. per as apart RMS te nemen 
-    # en die drie getallen te middelen. Dat maakt motion_rms rotatie-invariant: 
-    # dezelfde fysieke beweging geeft hetzelfde getal ongeacht hoe de hoofdband 
-    # op dat moment gedraaid lag (bv. op de rug vs. op de zij), terwijl het rekenkundig 
-    # gemiddelde van losse per-as-RMS's daar wel gevoelig voor is.
     available_motion = [ch for ch in MOTION_CHANNELS if ch in signals]
     if available_motion and all(end_i <= len(signals[ch]) and start_i < end_i
                                  for ch in available_motion):
@@ -523,7 +508,7 @@ def process_night(night_dir: Path, ids: dict, inspect: bool = False,
             "subject_id": ids["subject_id"],
             "group": ids["group"],
             "night_id": ids["night_id"],
-            "event_idx": start_idx + i,   # doorlopend over de hele run, niet per nacht bij 0
+            "event_idx": start_idx + i,   
             "start_sec": ev["start_sec"],
             "end_sec": ev["end_sec"],
             "duration_sec": ev["duration_sec"],

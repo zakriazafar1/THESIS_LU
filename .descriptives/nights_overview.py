@@ -1,27 +1,23 @@
 """
 nights_overview.py
 
-Beschrijft alle nachten die in de reduced feature matrix zitten:
-slaaparchitectuur (uit de R&K-hypnogrammen in sleepArchitecture/) + arousal-maten.
+Beschrijft alle nachten die in de reduced feature matrix zitten.
 
 Belangrijk:
   - Arousal-index = arousals / uur TOTAL SLEEP TIME (TST = N1+N2+N3+REM epochs).
-    Wake (0) en unscored/artefact (-1) epochs zitten NIET in de noemer,
-    consistent met het uitsluiten van wake-events in de feature matrix (AASM-definitie).
   - Geclipte nachten (CLIP_NIGHTS) worden in het hypnogram op dezelfde epoch afgekapt.
   - Arousal-aantallen = de events in de analyse (na 3-15 s filter en wake-exclusie).
 
 Hypnogram-pad:
   RAW_ROOT/<GROUP>/<subject>/<subject>_<night>/sleepArchitecture/<subject>_<night>.csv
-  bv. .../NSR/bnbd_nsr_17598/bnbd_nsr_17598_T0_N1/sleepArchitecture/bnbd_nsr_17598_T0_N1.csv
 
 Outputs (in OUT_DIR):
-  - nights_overview.csv      : 1 rij per nacht, geselecteerde maten (META_COLS + FEATURE_COLS), 2 decimalen (per_min: 3)
-  - nights_summary_table.csv : M, SD, Mdn, IQR, range per maat over nachten
-  - nights_unmatched.csv     : nachten zonder gevonden hypnogram (indien aanwezig)
+  - nights_overview.csv: 1 rij per nacht, geselecteerde maten (META_COLS + FEATURE_COLS), 2 decimalen (per_min: 3)
+  - nights_summary_table.csv: M, SD, Mdn, IQR, range per maat over nachten
+  - nights_unmatched.csv: nachten zonder gevonden hypnogram (indien aanwezig)
 
 Gebruik:
-  python nights_overview.py --inspect   # kolommen, paden, matching + 1 test-hypnogram
+  python nights_overview.py --inspect  
   python nights_overview.py             # volledige run
 """
 
@@ -42,7 +38,7 @@ BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\D
 # OUT_DIR      = BASE / ".data descriptives" / "full data" / "nights overview" 
 
 FEATURES_CSV      = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"
-ORIG_FEATURES_CSV = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"  # ongeschaald (duur in s)
+ORIG_FEATURES_CSV = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"  
 OUT_DIR = BASE / ".data descriptives" / "reduced data" / "nights overview"
 
 RAW_ROOT = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
@@ -50,14 +46,14 @@ GROUPS   = ["NSR"]
 
 EPOCH_S = 30
 
-# Geclipte nachten: (subject, nacht) -> aantal epochs dat behouden blijft (labels[:N])
+# Geclipte nachten 
 CLIP_NIGHTS: dict[tuple[str, str], int] = {
     ("bnbd_nsr_17598", "T0_N1"): 1011,
     ("bnbd_nsr_16379", "T0_N1"): 990,
     ("bnbd_nsr_19611", "T0_N1"): 910,
 }
 
-# Stadiumcodes -> labels. R&K: S3+S4 samen = N3.
+# Stadiumcodes -
 STAGE_MAP = {
     0: "W", 1: "N1", 2: "N2", 3: "N3", 4: "N3", 5: "REM", -1: "UNS",
     "W": "W", "WAKE": "W", "N1": "N1", "N2": "N2", "N3": "N3", "N4": "N3",
@@ -66,19 +62,19 @@ STAGE_MAP = {
 }
 SLEEP_STAGES = ["N1", "N2", "N3", "REM"]
 
-# Kolommen in de feature matrix (None = auto-detectie)
+# Kolommen in de feature matrix 
 FM_SUBJECT_COL = "subject_id"
 FM_NIGHT_COL   = "night_id"
 FM_ONSET_COL   = "start_sec"
-ONSET_UNIT_S   = 1.0       # 1.0 = seconden; 1/128 = samples bij 128 Hz; 30 = epochs
-ORIG_DURATION_COL = "duration_sec"   # auto: 'duration...'
+ONSET_UNIT_S   = 1.0       
+ORIG_DURATION_COL = "duration_sec"  
 
 OUT_DIR = BASE / "nights overview"
 OUT_SEP, OUT_DECIMAL = ";", ","
-N_DECIMALS = 2                                  # standaard: 2 decimalen (decimale komma, geen duizendtal-scheiding)
-DECIMALS_OVERRIDE = {"arousals_per_min_tst": 3}   # uitzonderingen per kolom
+N_DECIMALS = 2                                 
+DECIMALS_OVERRIDE = {"arousals_per_min_tst": 3}  
 
-# Kolommen die per nacht bewaard worden (in deze volgorde)
+# Kolommen die per nacht bewaard worden 
 META_COLS = ["subject", "night", "clipped_at_epoch",
              "recording_min_edf", "recording_min_hypno", "unscored_min",
              "spt_min", "tst_min", "waso_min",
@@ -199,7 +195,7 @@ def to_label(v):
 
 
 def load_hypnogram(path: Path) -> np.ndarray:
-    """Array met labels per epoch. Ondersteunt 1-kolom CSV, tabel met stage-kolom en JSON."""
+    """Array met labels per epoch. Tabel met stage-kolom en JSON."""
     if path.suffix.lower() == ".json":
         with open(path, "r", encoding="utf-8") as f:
             obj = json.load(f)

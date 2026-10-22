@@ -5,14 +5,14 @@ Overzicht van subjects/nachten/events in de reduced feature matrix,
 gekoppeld aan gender/age uit de subjects-info file.
 
 Outputs (in OUT_DIR):
-  - per_subject_overview.csv   : 1 rij per subject (n_nachten, n_events, events/nacht, gender, age)
-  - per_night_overview.csv     : 1 rij per nacht (subject, nacht, n_events)
-  - summary_table.csv          : samenvattende tabel (descriptives voor Methods/Results)
-  - unmatched_subjects.csv     : subjects uit de feature matrix zonder match in subjects-info (indien aanwezig)
+  - per_subject_overview.csv: 1 rij per subject (n_nachten, n_events, events/nacht, gender, age)
+  - per_night_overview.csv: 1 rij per nacht (subject, nacht, n_events)
+  - summary_table.csv: samenvattende tabel (descriptives voor Methods/Results)
+  - unmatched_subjects.csv: subjects uit de feature matrix zonder match in subjects-info (indien aanwezig)
 
 Gebruik:
-  python subjects_overview.py --inspect     # toont alleen kolommen + gedetecteerde ID-kolommen
-  python subjects_overview.py               # volledige run
+  python subjects_overview.py --inspect   # alleen kolommen + gedetecteerde ID-kolommen
+  python subjects_overview.py       # volledige run
 """
 
 import argparse
@@ -34,7 +34,6 @@ OUT_DIR = BASE / ".data descriptives" / "reduced data" / "subjects overview"
 SUBJECTS_CSV = BASE / ".data descriptives" / "subjects_timepoints_total(in).csv"
 # OUT_DIR      = BASE / ".data descriptives" / "full data" / "subjects overview" 
 
-# Laat op None voor auto-detectie; vul in als de detectie de verkeerde kolom pakt.
 FM_SUBJECT_COL = "subject_id"  
 FM_NIGHT_COL   = "night_id"  
 FM_EVENT_COL   = "event_idx"   
@@ -42,11 +41,10 @@ SI_SUBJECT_COL = "nsr_id"
 SI_GENDER_COL  = "female"   
 SI_AGE_COL     = "age"   
 
-# Subject-IDs matchen op alleen het numerieke deel (bv. "BNBD_012" == "12").
+# Subject-IDs matchen op alleen het numerieke deel
 # Zet op False als IDs letterlijk gelijk moeten zijn.
 MATCH_ON_DIGITS = True
 
-# Output in Nederlands Excel-formaat (; en decimale komma)
 OUT_SEP, OUT_DECIMAL = ";", ","
 
 # ============================================================
@@ -62,7 +60,7 @@ AGE_CANDIDATES     = ["age", "leeftijd", "age_years"]
 
 
 def read_csv_auto(path: Path) -> pd.DataFrame:
-    """Leest CSV met automatische detectie van ; vs , en decimale komma."""
+    """Leest CSV."""
     with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
         head = f.readline()
     sep = ";" if head.count(";") > head.count(",") else ","
@@ -144,7 +142,7 @@ def main(inspect_only=False):
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ---------- events per nacht / subject ----------
+    # Events per nacht / subject 
     fm["_sid"] = fm[fm_subj].map(norm_id)
     fm["_nid"] = fm[fm_subj].astype(str) + "__" + fm[fm_night].astype(str)  # nacht uniek binnen subject
 
@@ -163,7 +161,7 @@ def main(inspect_only=False):
                         events_per_night_max=("n_events", "max"))
                    .reset_index())
 
-    # ---------- subjects-info: 1 rij per subject ----------
+    # Subjects-info koppelen (gender/age)
     si["_sid"] = si[si_subj].map(norm_id)
     keep = {}
     if si_gen:
@@ -185,7 +183,6 @@ def main(inspect_only=False):
     else:
         si_one = pd.DataFrame({"subject": si["_sid"].unique()})
 
-    # ---------- koppelen ----------
     overview = per_subject.merge(si_one, on="subject", how="left", indicator=True)
     unmatched = overview.loc[overview["_merge"] == "left_only", "subject"]
     overview = overview.drop(columns="_merge").sort_values("subject", key=lambda s: pd.to_numeric(s, errors="coerce"))
@@ -196,7 +193,7 @@ def main(inspect_only=False):
         print(f"  [LET OP] niet gematcht ({len(unmatched)}): {unmatched.tolist()}")
         unmatched.to_frame().to_csv(OUT_DIR / "unmatched_subjects.csv", index=False, sep=OUT_SEP)
 
-    # ---------- samenvattende tabel ----------
+    # Summary tabel
     rows = [
         {"Variabele": "Subjects", "N": len(per_subject), "Waarde": ""},
         {"Variabele": "Nachten", "N": len(per_night), "Waarde": ""},
@@ -218,7 +215,6 @@ def main(inspect_only=False):
                          "Waarde": f"{int(grp['n_nights'].sum())} nachten, {int(grp['n_events'].sum())} events"})
     summary = pd.DataFrame(rows)
 
-    # ---------- opslaan ----------
     per_night.rename(columns={fm_night: "night"}).to_csv(
         OUT_DIR / "per_night_overview.csv", index=False, sep=OUT_SEP, decimal=OUT_DECIMAL)
     overview.round(2).to_csv(OUT_DIR / "per_subject_overview.csv", index=False, sep=OUT_SEP, decimal=OUT_DECIMAL)

@@ -1,12 +1,9 @@
 """
-check_pca_congruence.py
+3.1_pca_congruence.py
 
 Compares the within-person centered PCA with the original PCA.
-Reproduces every number in the "Principal Component Analysis" paragraph of the
-within-centered subsection:
   - between-participant share of variance per feature
-  - component-feature correlations of the ORIGINAL PCA (recomputed from scores)
-  - Tucker's congruence coefficients (centered vs. original)
+ - Tucker's congruence coefficients (centered vs. original)
   - correlations between event scores of the two analyses
 """
 
@@ -16,12 +13,11 @@ import pandas as pd
 
 BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
             r"\THESIS_OUTPUTS\PROJECT 2")
-# --- adjust these four paths to where the files are -------------------------
+
 SCALED_FEATURES = BASE / r"reduced feature matrix\arousal_features_reduced_scaled.csv"
 SCORES_ORIGINAL = BASE / r"4. clustering\3. pca\pca_scores_5pc_whitened.csv"
 SCORES_CENTERED = BASE / r"5. clustering_centered\2. pca centered\pca_scores_5pc_whitened.csv"
 LOADCORR_CENTERED = BASE / r"5. clustering_centered\2. pca centered\pca_loading_correlations.csv"
-# -----------------------------------------------------------------------------
 
 KEY = ["subject_id", "night_id", "event_idx"]
 FEATURES = ["mean_delta_ratio", "mean_theta_ratio", "mean_alpha_ratio", "mean_sigma_ratio",
@@ -52,7 +48,7 @@ print("Original PCA, component-feature correlations:\n", L_old.round(2), "\n")
 print("Centered PCA, component-feature correlations:\n", L_new.round(2), "\n")
 
 
-# 3. Tucker's congruence: sum(a*b) / sqrt(sum(a^2) * sum(b^2))
+# 3. Tucker's congruence
 def tucker(a, b):
     return a @ b / np.sqrt((a @ a) * (b @ b))
 

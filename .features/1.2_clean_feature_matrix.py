@@ -2,26 +2,22 @@
 =============================================================================
 1.2_clean_feature_matrix.py
 
-Maakt de definitieve featurematrix voor de analyse, in drie stappen:
+Maakt de definitieve featurematrix voor de analyse:
 
-  1. Duur-filter: alleen events met MIN_DURATION_SEC <= duur <= MAX_DURATION_SEC
-     (grenzen inclusief; 2.9-15.1 s = 3-15 s met een kleine marge).
-  2. Slaapstadium-filter: alleen arousals uit slaap. Wake (0), niet-gescoord (-1)
+  1. Alleen events met MIN_DURATION_SEC <= duur <= MAX_DURATION_SEC behouden.
+  2. Alleen arousals uit slaap. Wake (0), niet-gescoord (-1)
      en events zonder stadium (NaN, bv. geen hypnogram) gaan eruit.
   3. NaN-check op de gefilterde set: telt per feature hoeveel waarden ontbreken
      (NaN of inf) en verwijdert elk event met minstens één ontbrekende feature.
-     Eerst filteren, dan NaN-check: NaN's door foutief gescoorde, extreem korte
-     events (bv. 0.004 s) vallen zo al in het duurfilter weg.
 
 sec_prev_event wordt helemaal uit de matrix verwijderd (wordt niet gebruikt).
 Niet-feature kolommen (subject_id, group, night_id, stage_rk, event_idx,
 start_sec, end_sec) tellen niet mee in de NaN-check.
 
 event_idx wordt NIET opnieuw genummerd: zo blijft elk event terug te
-koppelen aan de ORIGIN-matrix (er ontstaan gaten waar rijen verwijderd zijn).
+koppelen aan de ORIGIN-matrix.
 
-Input : INPUT_FILE (zie configuratie)
-Output: arousal_feature_matrix_FILTERED.csv (in dezelfde map)
+Output: arousal_feature_matrix_FILTERED.csv 
 
 Gebruik:
   python 1.2_clean_feature_matrix.py
@@ -42,11 +38,11 @@ EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neurosci
 INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_ORIGIN_clipped.csv"
 OUTPUT_FILE_FILTERED = EVENTS_DIR / "arousal_feature_matrix_FILTERED.csv"
 
-# Duur-filter (grenzen inclusief)
+# Duur-filter 
 MIN_DURATION_SEC = 2.9
 MAX_DURATION_SEC = 15.1
 
-# Slaapstadia die eruit gaan: wake (0) en niet-gescoord (-1); NaN gaat ook weg
+# Slaapstadia die eruit gaan: wake (0) en niet-gescoord (-1)
 EXCLUDE_STAGES = [0, -1]
 
 NON_FEATURE_COLUMNS = [
@@ -103,14 +99,14 @@ def main():
         print(list(df.columns))
         return
 
-    # ---- Stap 1: duur-filter ----
+    # Stap 1: duur-filter
     dur = df["duration_sec"]
     n_short = int((dur < MIN_DURATION_SEC).sum())
     n_long = int((dur > MAX_DURATION_SEC).sum())
     n_no_dur = int(dur.isna().sum())
     df = df[dur.between(MIN_DURATION_SEC, MAX_DURATION_SEC, inclusive="both")]
 
-    # ---- Stap 2: slaapstadium-filter ----
+    # Stap 2: slaapstadium-filter
     stage = df["stage_rk"]
     n_wake = int((stage == 0).sum())
     n_unscored = int((stage == -1).sum())
@@ -118,7 +114,7 @@ def main():
     df = df[~stage.isin(EXCLUDE_STAGES) & stage.notna()]
     n_after_filters = len(df)
 
-    # ---- Stap 3: NaN-check (op de gefilterde set) ----
+    # Stap 3: NaN-check (op de gefilterde set) 
     nan_per_feature = df[check_cols].isna().sum()
     missing_mask = df[check_cols].isna().any(axis=1)
     n_nan_rows = int(missing_mask.sum())
@@ -139,7 +135,7 @@ def main():
     df = df[~missing_mask]
     n_final = len(df)
 
-    # ---- Overzicht ----
+    # Overzicht 
     print("\nOVERZICHT")
     print(f"  start                                    : {n_start:6d}")
     print(f"  - korter dan {MIN_DURATION_SEC:g} s                       : {n_short:6d}")

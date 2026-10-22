@@ -5,33 +5,16 @@
 Visual check of the feature pairs where Pearson and Spearman diverge strongly
 (output of 3.1_correlation.py: pearson_vs_spearman_divergent.csv).
 
-Spearman is the main analysis (3.1); this script is a diagnostic check.
-Question: is Pearson's r inflated by isolated islands of extreme events in
-the LOWER LEFT (both features very low, z < TAIL_Z)? On a log scale, a z of
--4 to -8 means a ratio close to 0: event power far below the baseline ->
-suspicious of a contaminated baseline or signal dropout.
-
 Per pair:
-  - Scatterplot (hexbin density, log scale) of the scaled values.
+  - Scatterplot of the scaled values.
   - "Tail events" highlighted: events where BOTH features < TAIL_Z (z-score).
   - In the panel: Pearson r, Spearman rho, and both WITHOUT the tail events.
-    If r drops markedly without the tail -> the tail drives the correlation.
+If r drops markedly without the tail -> the tail drives the correlation.
 
 In addition, a table of all tail events (across all plotted pairs) with
 metadata (subject, night, start_sec, duration, motion_rms), so they can be
 looked up in the raw EEG. And a count per subject/night: are the tail events
 spread out, or concentrated in a few nights (-> artefact or subject-specific)?
-
-Steps:
-  1. Load the scaled feature matrix + divergent pairs.
-  2. Select the top-N pairs (by |rho - r|), or a single pair via --pair.
-  3. Per pair: statistics + scatterplot (grid + individual figures).
-  4. Save tail events + counts per subject/night.
-
-Figures follow APA 7 style: no embedded titles (number + title go above the
-figure in the manuscript), sans-serif font, sentence-case axis labels,
-readable feature names, statistical symbols in italics, correlations without
-leading zero, panel letters in multi-panel figures, no chart junk.
 
 Usage:
   python 3.2_check_corr.py
@@ -73,7 +56,8 @@ METADATA_COLS = [
     "start_sec", "end_sec", "sec_prev_event",
     "stage_rk",
 ]
-# extra columns included in the tail table (if present)
+
+# extra columns 
 CONTEXT_COLS = ["duration_sec", "motion_rms", "oxy_amp_ratio"]
 
 TOP_N_DEFAULT = 6   # number of pairs to plot
@@ -167,13 +151,12 @@ def save_figure(fig, out_path: Path) -> None:
 
 
 # =============================================================================
-# SECTION 1 — LOADING
+# STEP 1: LOADING
 # =============================================================================
 
 def read_csv_robust(path: Path) -> pd.DataFrame:
     """
-    Reads a CSV with automatic delimiter detection (',' or ';') and falls back
-    to decimal=',' if numeric columns are read as text (Dutch Excel).
+    Reads a CSV.
     """
     if not path.exists():
         raise FileNotFoundError(f"{path} does not exist.")
@@ -207,7 +190,7 @@ def choose_pairs(args, df: pd.DataFrame) -> list[tuple[str, str]]:
 
 
 # =============================================================================
-# SECTION 2 — STATISTICS PER PAIR
+# STEP 2:STATISTICS PER PAIR
 # =============================================================================
 
 def pair_stats(df: pd.DataFrame, f1: str, f2: str, tail_z: float) -> dict:
@@ -233,12 +216,12 @@ def pair_stats(df: pd.DataFrame, f1: str, f2: str, tail_z: float) -> dict:
 
 
 # =============================================================================
-# SECTION 3 — PLOTS
+# STEP 3: PLOTS
 # =============================================================================
 
 def draw_pair(ax, df: pd.DataFrame, st: dict, tail_z: float, panel: str | None = None) -> None:
     """
-    Hexbin density (log scale) + tail events in red + tail cut-off as dotted
+    Density (log scale) + tail events in red + tail cut-off as dotted
     lines. Correlations with and without the tail as text in the panel.
     """
     f1, f2 = st["feature_1"], st["feature_2"]
@@ -304,7 +287,7 @@ def plot_single(df: pd.DataFrame, st: dict, tail_z: float, out_path: Path) -> No
 
 
 # =============================================================================
-# SECTION 4 — TAIL EVENTS
+# STEP 4: TAIL EVENTS
 # =============================================================================
 
 def tail_events_table(df: pd.DataFrame, stats: list[dict]) -> pd.DataFrame:
@@ -362,7 +345,6 @@ def main():
     out_dir = args.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Steps 1+2 ---
     df = read_csv_robust(args.input)
     print(f"Feature matrix loaded: {args.input}  shape={df.shape}")
     pairs = choose_pairs(args, df)
@@ -371,7 +353,7 @@ def main():
               "threshold) -- nothing to plot. The correlations are therefore not driven by a tail.")
         return
 
-    # --- Step 3: statistics + plots ---
+    # Statistics + plots 
     stats = [pair_stats(df, f1, f2, args.tail_z) for f1, f2 in pairs]
     stats_df = pd.DataFrame([{k: v for k, v in s.items() if k != "tail_index"} for s in stats])
     stats_df.to_csv(out_dir / "pair_stats.csv", index=False)
@@ -383,13 +365,13 @@ def main():
         plot_single(df, st, args.tail_z,
                     out_dir / f"scatter_{st['feature_1']}__{st['feature_2']}.png")
 
-    # --- Step 4: tail events ---
+    # Tail events
     tail = tail_events_table(df, stats)
     tail.to_csv(out_dir / "tail_events.csv", index=False)
     print(f"\n{len(tail)} unique tail event(s) across all plotted pairs "
           f"({100 * len(tail) / len(df):.2f}% of all events).")
 
-    # night = subject + night_id, in case night_id restarts per subject
+    # night = subject + night_id
     for name, key in (("subject", ["subject_id"]), ("night", ["subject_id", "night_id"])):
         g = tail_by_group(tail, df, key)
         if g is not None:

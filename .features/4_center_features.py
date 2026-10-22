@@ -1,26 +1,23 @@
 """
 4_center_features.py 
 
-Centreer de geschaalde features per deelnemer (of per nacht) en standaardiseer 
-opnieuw. Robuustheidscheck: is de clusterstructuur binnen personen hetzelfde 
-als over personen heen?
+Centreert de geschaalde features per deelnemer en standaardiseert 
+opnieuw. 
 
 Wat het script doet:
 1. Leest de geschaalde feature-matrix (z-scores).
 2. Trekt per groep (deelnemer, of deelnemer x nacht) het groepsgemiddelde
-   (of de mediaan) af, per feature -> elk event = "hoe wijkt deze arousal 
-   af van wat gebruikelijk is voor deze persoon/nacht"
+   (of de mediaan) af, per feature.
 3. Standaardiseert opnieuw (z-score over alle events), zodat elke feature weer SD 1 heeft.
    Nodig voor HDBSCAN (afstanden). 
-4. Schrijft een nieuw CSV met precies dezelfde kolommen als de invoer, zodat
-   2_GMM.py en de HDBSCAN-pipeline het via --input kunnen gebruiken.
+4. Schrijft een nieuw CSV met precies dezelfde kolommen als de invoer.
 5. Schrijft een kort rapport: per feature hoeveel variantie tussen groepen zat
    (en dus is verwijderd). 
 
 Gebruik
 -------
     python 4_center_features.py                         # per deelnemer, gemiddelde
-    python 4_center_features.py --level night           # per nacht (secundaire check)
+    python 4_center_features.py --level night           # per nacht 
     python 4_center_features.py --stat median           # mediaan i.p.v. gemiddelde
     python 4_center_features.py --input X.csv --outdir Y
 

@@ -2,23 +2,21 @@
 =============================================================================
 1.3_feature_summary.py
 
-Maakt een samenvattende tabel van de featurematrix die door
-1_feature_matrix.py is aangemaakt (arousal_feature_matrix_ORIGIN.csv).
+Maakt een samenvattende tabel van de featurematrix. 
 
 Output: één rij per feature, met de kolommen
-  feature, n, n_missing, min, max, mean, median, q1, q3, iqr
+feature, n, n_missing, min, max, mean, median, q1, q3, iqr
 
-  - n          = aantal events met een geldige (niet-NaN) waarde
-  - n_missing  = aantal events met NaN
-  - q1 / q3    = 25e / 75e percentiel
-  - iqr        = q3 - q1
+  - n = aantal events met een geldige (niet-NaN) waarde
+  - n_missing = aantal events met NaN
+  - q1 / q3 = 25e / 75e percentiel
+  - iqr = q3 - q1
 
 Niet-feature kolommen (ID's, tijdstempels en de slaapstage) worden
-overgeslagen: subject_id, group, night_id, stage_rk, event_idx,
-start_sec, end_sec. duration_sec en sec_prev_event worden WEL meegenomen.
+overgeslagen. 
 
 De tabel wordt opgeslagen in dezelfde map als de featurematrix:
-  arousal_feature_SUMMARY.csv
+arousal_feature_SUMMARY.csv
 
 Gebruik:
   python 1.3_feature_summary.py
@@ -26,7 +24,7 @@ Gebruik:
 
 Met --input wordt de naam van het input-bestand aan de output toegevoegd,
 zodat de standaard-samenvatting niet overschreven wordt:
-  ..._FILTERED.csv  ->  arousal_feature_SUMMARY_FILTERED.csv
+  ..._FILTERED.csv > arousal_feature_SUMMARY_FILTERED.csv
 =============================================================================
 """
 
@@ -56,11 +54,7 @@ NON_FEATURE_COLUMNS = [
 # =============================================================================
 
 def load_feature_matrix(path: Path) -> pd.DataFrame:
-    """
-    Leest de featurematrix robuust in:
-      - scheidingsteken automatisch detecteren (komma of puntkomma, bv. na
-        opslaan in Excel met NL-instellingen)
-    """
+    """Leest de featurematrix in. """
     df = pd.read_csv(path, sep=None, engine="python")
     df.columns = [str(c).strip() for c in df.columns]
 
@@ -77,7 +71,7 @@ def load_feature_matrix(path: Path) -> pd.DataFrame:
 
 
 def get_feature_columns(df: pd.DataFrame) -> list[str]:
-    """Alle numerieke kolommen behalve ID's/tijdstempels, in de originele volgorde."""
+    """Alle numerieke kolommen behalve ID's/tijd, in de originele volgorde."""
     return [c for c in df.columns
             if c not in NON_FEATURE_COLUMNS and pd.api.types.is_numeric_dtype(df[c])]
 

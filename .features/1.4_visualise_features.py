@@ -2,28 +2,14 @@
 =============================================================================
 1.4_visualise_features.py
 
-Thesis figures of the distribution of every feature in the
-feature matrix (APA7).
+Figuren van de verdeling van elke feature in de feature matrix.
 
-Figures
-  ..._eeg    EEG band amplitude: one row per frequency band
-               col 1  mean amplitude ratio during the event  (left and right channel overlaid)
-               col 2  peak amplitude ratio during the event  (left and right channel overlaid)
-               col 3  mean amplitude ratio, left/right average
-             Log axes (1 = night median, so 0.5x and 2x are symmetric), shared per
-             column so bands can be compared directly.
-  ..._other  All remaining features (duration, head movement, PPG, ...), linear axes.
+Non-feature kolommen (subject_id, group, night_id, stage_rk, event_idx,
+start_sec, end_sec) worden geskipt.
 
-  x-axes are truncated at the CLIP_PCT percentiles (default 0.5-99.5) so a few
-  extreme events do not flatten the histograms; no data are removed. The number
-  of events outside the axes is printed to the console. 
-
-Non-feature columns (subject_id, group, night_id, stage_rk, event_idx,
-start_sec, end_sec) are skipped.
-
-Input : INPUT_FILE (falls back to FALLBACK_FILE), or --input <csv>
-Output: feature_distributions_eeg.png / .pdf  and  feature_distributions_other.png / .pdf  
-        with --input the input name is added, e.g. feature_distributions_FILTERED_eeg.png
+Input : INPUT_FILE, or --input <csv>
+Output: feature_distributions_eeg.png / .pdf & feature_distributions_other.png / .pdf  
+        met --input wordt de input naam toegevoegd.
 
 Usage
   python 1.4_visualise_features.py
@@ -60,7 +46,7 @@ NON_FEATURE_COLUMNS = [
     "start_sec", "end_sec",
 ]
 
-# Frequency bands: column name -> row label shown in the figure
+# Frequency bands
 BANDS = {
     "delta": "Delta\n(0.5-4 Hz)",
     "theta": "Theta\n(4-8 Hz)",
@@ -69,7 +55,7 @@ BANDS = {
     "beta":  "Beta\n(16-30 Hz)",
 }
 
-# EEG columns: (column heading, column-name template(s), overlay L/R?)
+# EEG kolommen
 EEG_COLUMNS = [
     ("Mean Amplitude",                ["L_{b}_ratio", "R_{b}_ratio"],           True),
     ("Peak Amplitude",                ["L_{b}_peak_ratio", "R_{b}_peak_ratio"], True),
@@ -77,7 +63,7 @@ EEG_COLUMNS = [
 ]
 EEG_XLABEL = "Event Ratio"   # one shared label under panel A
 
-# Other features: column -> (panel heading, x-axis label, draw ratio-1 line?)
+# Andere features 
 OTHER_FEATURES = {
     "duration_sec":   ("Arousal Duration",            "Duration (s)",             False),
     "motion_rms":     ("Head Movement",               "RMS Acceleration (g)",     False),
@@ -86,29 +72,29 @@ OTHER_FEATURES = {
 }
 Y_LABEL = "Number of Events"
 
-CLIP_PCT = (0.5, 99.5)     # displayed x-range (percentiles); data are not removed
+CLIP_PCT = (0.5, 99.5)     # displayed x-range in figuren (data NIET verwijderd)
 N_BINS = 40
 LOG_TICKS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
 
-# Size: 16 cm = text width of an A4 page with 2.5 cm margins; fonts are set at print size.
+# Figuur layout 
 FIG_WIDTH_IN = 6.0
-ROW_HEIGHT_IN = 1.15       # EEG figure: height of one row of panels
-ROW_GAP_IN = 0.15          # EEG figure: extra height per row for the whitespace between rows
-OTHER_N_COLS = 3           # other-features figure: panels per row
-OTHER_ROW_HEIGHT_IN = 2.3  # other-features figure: height of one row of panels
+ROW_HEIGHT_IN = 1.15       
+ROW_GAP_IN = 0.15          
+OTHER_N_COLS = 3           
+OTHER_ROW_HEIGHT_IN = 2.3 
 DPI = 300
 
-# Whitespace (increase for a more open layout)
-PAD_IN = 0.08              # margin around every panel, in inches
-PANEL_HSPACE = 0.10        # vertical gap between panels
-PANEL_WSPACE = 0.12        # horizontal gap between panels
-OUTER_MARGIN_IN = 0.15     # white border around the whole figure when saving
-FONT_CANDIDATES = ["Arial", "Helvetica", "Liberation Sans", "DejaVu Sans"]   # first available is used
+# Whitespace 
+PAD_IN = 0.08            
+PANEL_HSPACE = 0.10       
+PANEL_WSPACE = 0.12       
+OUTER_MARGIN_IN = 0.15    
+FONT_CANDIDATES = ["Arial", "Helvetica", "Liberation Sans", "DejaVu Sans"]   # first available used
 
-# Colours: validated colour-blind-safe pair for L/R; neutral grey for single series
-COLOR_L = "#2a78d6"        # blue
-COLOR_R = "#eb6834"        # orange
-COLOR_SINGLE = "#595959"   # grey
+# Colours
+COLOR_L = "#2a78d6"        
+COLOR_R = "#eb6834"        
+COLOR_SINGLE = "#595959"   
 BLACK = "#000000"
 REF_GREY = "#8c8c8c"       # reference line (ratio = 1)
 
@@ -121,7 +107,7 @@ def pick_font() -> str:
 FONT = pick_font()
 plt.rcParams.update({
     "font.family": FONT,
-    "mathtext.fontset": "custom",            # italic Mdn in the same font
+    "mathtext.fontset": "custom",            
     "mathtext.rm": FONT,
     "mathtext.it": f"{FONT}:italic",
     "mathtext.bf": f"{FONT}:bold",
@@ -151,7 +137,7 @@ plt.rcParams.update({
     "figure.facecolor": "white",
     "axes.facecolor": "white",
     "savefig.facecolor": "white",
-    "pdf.fonttype": 42,          # embed text as text (editable, crisp in Word/LaTeX)
+    "pdf.fonttype": 42,          
     "svg.fonttype": "none",
 })
 
@@ -160,7 +146,6 @@ plt.rcParams.update({
 # =============================================================================
 
 def load_feature_matrix(path: Path) -> pd.DataFrame:
-    """Detects comma/semicolon separator and converts decimal commas."""
     df = pd.read_csv(path, sep=None, engine="python")
     df.columns = [str(c).strip() for c in df.columns]
     for col in df.columns:
@@ -209,11 +194,11 @@ def set_log_axis(ax, lo: float, hi: float):
     ax.set_xscale("log")
     ax.set_xlim(lo, hi)
     ticks = [t for t in LOG_TICKS if lo <= t <= hi]
-    if np.log10(hi / lo) > 2.3:              # wide range (> ~2 decades): powers of ten only
+    if np.log10(hi / lo) > 2.3:              
         ticks = [t for t in ticks if np.isclose(np.log10(t), round(np.log10(t)))]
-    elif len(ticks) > 5:                     # keep at most ~5 labels at 8 pt
+    elif len(ticks) > 5:                    
         ticks = [t for t in ticks if t in (0.5, 1, 2, 5, 10, 20, 50)][:5]
-    if len(ticks) < 2:                       # very narrow range: fall back to two end ticks
+    if len(ticks) < 2:                      
         ticks = [lo, hi]
     ax.xaxis.set_major_locator(FixedLocator(ticks))
     ax.xaxis.set_major_formatter(FuncFormatter(fmt_number))
@@ -222,7 +207,7 @@ def set_log_axis(ax, lo: float, hi: float):
 
 def draw_hist(ax, x: np.ndarray, bins: np.ndarray, color: str, lo: float, hi: float,
               fill: bool = True):
-    """Outline histogram; filled only for single series (overlaid fills blend into a third colour)."""
+    """Outline histogram, filled only for single series."""
     shown = x[(x >= lo) & (x <= hi)]
     if fill:
         ax.hist(shown, bins=bins, histtype="stepfilled", color=color, alpha=0.30, linewidth=0)
@@ -231,7 +216,7 @@ def draw_hist(ax, x: np.ndarray, bins: np.ndarray, color: str, lo: float, hi: fl
 
 
 def median_label(ax, values: list[tuple[str, float]]):
-    """Medians in the top-right corner, e.g. 'Mdn L = 1.73' (Mdn in italics, APA)."""
+    """Medians in the top-right corner"""
     lines = [rf"$\it{{Mdn}}${(' ' + name) if name else ''} = {v:.2f}" for name, v in values]
     ax.text(0.98, 0.98, "\n".join(lines), transform=ax.transAxes, ha="right", va="top",
             fontsize=7.5, linespacing=1.3)
@@ -242,7 +227,7 @@ def median_label(ax, values: list[tuple[str, float]]):
     ax.set_ylim(0, top * factor)
     for line in ax.lines:
         xdata = line.get_xdata()
-        if len(xdata) == 2 and xdata[0] == xdata[1]:          # vertical line from axvline
+        if len(xdata) == 2 and xdata[0] == xdata[1]:          
             line.set_ydata([0, 1.02 / factor])
 
 
@@ -263,13 +248,12 @@ def build_eeg_figure(df: pd.DataFrame, log_lines: list[str]):
                                      for _, tmpl, _ in EEG_COLUMNS for t in tmpl)]
     if not bands:
         return None
-    sub_eeg = new_figure((ROW_HEIGHT_IN + ROW_GAP_IN) * len(bands) + 1.0)   # + headings, x-label, legend
+    sub_eeg = new_figure((ROW_HEIGHT_IN + ROW_GAP_IN) * len(bands) + 1.0)   
 
     axes = sub_eeg.subplots(len(bands), len(EEG_COLUMNS), squeeze=False)
     sub_eeg.supylabel(Y_LABEL, fontsize=8)
 
     for c, (heading, templates, overlay) in enumerate(EEG_COLUMNS):
-        # shared x-range per column (all bands, L and R pooled)
         col_data = {b: [clean(df[t.format(b=b)], positive=True)
                         for t in templates if t.format(b=b) in df.columns] for b in bands}
         lo, hi = clip_range([a for arrs in col_data.values() for a in arrs], log=True)
@@ -297,7 +281,7 @@ def build_eeg_figure(df: pd.DataFrame, log_lines: list[str]):
                 ax.set_title(heading, fontweight="bold", pad=6)
             if r < len(bands) - 1:
                 ax.tick_params(labelbottom=False)
-            elif c == len(EEG_COLUMNS) // 2:          # one shared x-label, under the middle column
+            elif c == len(EEG_COLUMNS) // 2:          
                 ax.set_xlabel(EEG_XLABEL)
             if c == 0:
                 ax.set_ylabel(BANDS[band], fontweight="bold", rotation=0,
@@ -322,7 +306,7 @@ def build_other_figure(df: pd.DataFrame, other_cols: list[str], log_lines: list[
     if not other_cols:
         return None
     n_rows = int(np.ceil(len(other_cols) / OTHER_N_COLS))
-    sub_oth = new_figure(OTHER_ROW_HEIGHT_IN * n_rows + 0.5)                # + legend
+    sub_oth = new_figure(OTHER_ROW_HEIGHT_IN * n_rows + 0.5)               
 
     axes = sub_oth.subplots(n_rows, OTHER_N_COLS, squeeze=False)
     has_ratio_line = False
@@ -363,7 +347,6 @@ def build_other_figure(df: pd.DataFrame, other_cols: list[str], log_lines: list[
 # =============================================================================
 
 def input_tag(path: Path) -> str:
-    """'arousal_feature_matrix_FILTERED' -> 'FILTERED'; other names are kept whole."""
     prefix = "arousal_feature_matrix_"
     return path.stem[len(prefix):] if path.stem.startswith(prefix) else path.stem
 

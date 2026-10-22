@@ -2,22 +2,13 @@
 =============================================================================
 2.2_scale_features.py
 
-Standardisation (z-score) of the transformed arousal
-feature matrix.
-
-Why scale:
-  After 2.1 the features still have different units and spreads
-  (ln seconds, ln ratios, untransformed motion_rms/oxy_amp_ratio).
-  PCA is variance-based and HDBSCAN is distance-based: without scaling, a
-  feature with a large spread would dominate purely because of its scale.
-  After z-scoring every feature has mean 0 and SD 1, so PCA works on the
-  correlation matrix and every feature weighs equally in distances.
+Standardisation (z-score) of the transformed arousal feature matrix.
 
 Steps:
-  1. Load the transformed feature matrix (arousal_feature_matrix_transformed.csv).
+  1. Load the transformed feature matrix.
   2. Fit and apply StandardScaler per feature (mean -> 0, SD -> 1).
      Mean and SD per feature are written to scaler_params.csv, so scaled
-     values can be converted back later: x = z * sd + mean.
+     values can be converted back later.
   3. Check (mean ~ 0, SD ~ 1) per feature -> scaling_check.csv,
      + distribution figure after scaling.
   4. Write the scaled feature matrix.
@@ -60,7 +51,7 @@ METADATA_COLS = [
     "stage_rk",
 ]
 
-# Frequency bands (rows of the spectral panels) with their label in the figure.
+# Frequency bands 
 BANDS: list[tuple[str, str]] = [
     ("delta", "Delta\n(0.5-4 Hz)"),
     ("theta", "Theta\n(4-8 Hz)"),
@@ -69,7 +60,7 @@ BANDS: list[tuple[str, str]] = [
     ("beta",  "Beta\n(16-30 Hz)"),
 ]
 
-# Panel labels for the non-spectral features (bottom row).
+# Panel labels 
 FEATURE_LABELS: dict[str, str] = {
     "duration_sec":  "Duration",
     "motion_rms":    "Motion RMS",
@@ -121,15 +112,11 @@ COLOR_REF = "#8C8C8C"
 Z_LABEL = r"$\mathit{z}$ score"
 
 # =============================================================================
-# STEP 1 - LOADING
+# STEP 1: LOADING
 # =============================================================================
 
 def load_transformed_matrix(path: Path) -> pd.DataFrame:
-    """
-    Reads the transformed feature matrix. Detects the delimiter automatically,
-    and re-reads with decimal="," if numeric columns come in as text (Dutch
-    Excel scenario). 
-    """
+    """Reads the transformed feature matrix. """
     if not path.exists():
         raise FileNotFoundError(
             f"{path} does not exist -- run 2.1_transform_features.py first, or pass the "
@@ -165,7 +152,7 @@ def load_transformed_matrix(path: Path) -> pd.DataFrame:
 
 
 def get_feature_columns(df: pd.DataFrame) -> list[str]:
-    """All columns except the metadata columns -> these are the features to scale."""
+    """All columns except the metadata columns"""
     return [c for c in df.columns if c not in METADATA_COLS]
 
 
@@ -203,7 +190,7 @@ def scale_with_standard_scaler(df: pd.DataFrame, feature_cols: list[str]
 def check_scaling(df_scaled: pd.DataFrame, feature_cols: list[str], tol: float = 1e-6) -> pd.DataFrame:
     """
     Check: after z-scoring every feature must have mean ~ 0 and SD ~ 1.
-    Returns the mean and SD per feature AFTER scaling (ddof=0, as in sklearn).
+    Returns the mean and SD per feature AFTER scaling.
     """
     means = df_scaled[feature_cols].mean()
     sds = df_scaled[feature_cols].std(ddof=0)
@@ -284,7 +271,7 @@ def split_feature_columns(feature_cols: list[str]) -> tuple[list[str], list[str]
 
 def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path) -> None:
     """
-    APA 7 figure of the z-scored features in the style of 1.4_visualise_features.py.
+    APA 7 figure of the z-scored features.
       Top block: rows = bands; columns = Mean Amplitude (L/R overlaid),
                  Peak Amplitude (L/R overlaid), L/R Average.
       Bottom row: the non-spectral features (duration, motion, PPG).
@@ -298,7 +285,7 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
     top_fig, bottom_fig = fig.subfigures(2, 1, height_ratios=[1.85 * len(bands) + 0.5,
                                                            2.3 * n_other_rows + 0.8])
 
-    # ---- top block: spectral features --------------------------------------
+    # top block: spectral features 
     axes = top_fig.subplots(len(bands), 3, squeeze=False)
     for col_i, title in enumerate(["Mean Amplitude", "Peak Amplitude", "L/R Average"]):
         axes[0, col_i].set_title(title, fontweight="bold", pad=8)
@@ -314,7 +301,7 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
     top_fig.supxlabel(Z_LABEL, fontsize=10)
     top_fig.supylabel("Number of Events", fontsize=10)
 
-    # ---- bottom row(s): other features -------------------------------------
+    # bottom row: other features 
     if other:
         bax = bottom_fig.subplots(n_other_rows, 3, squeeze=False).flatten()
         for i, c in enumerate(other):
@@ -327,7 +314,7 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
         for j in range(len(other), len(bax)):
             bax[j].axis("off")
 
-    # ---- legend (inside the image, at the bottom) ---------------------------
+    # legend 
     handles = [
         Line2D([], [], color=COLOR_LEFT, linewidth=2, label="Left channel"),
         Line2D([], [], color=COLOR_RIGHT, linewidth=2, label="Right channel"),
@@ -362,18 +349,18 @@ def main():
     feature_cols = get_feature_columns(df)
     print(f"\n{len(feature_cols)} features (metadata columns excluded): {feature_cols}")
 
-    # --- Step 2: StandardScaler ---
+    # StandardScaler 
     df_scaled, scaler_params = scale_with_standard_scaler(df, feature_cols)
     scaler_params.to_csv(output_dir / "scaler_params.csv", index=False)
     print(f"\nStandardScaler applied to all {len(feature_cols)} features (mean -> 0, SD -> 1).")
     print(scaler_params.round(4).to_string(index=False))
 
-    # --- Step 3: check + figure ---
+    # Check + figure 
     scaling_check = check_scaling(df_scaled, feature_cols)
     scaling_check.to_csv(output_dir / "scaling_check.csv", index=False)
     plot_distributions(df_scaled, feature_cols, output_dir / "feature_distributions_scaled.png")
 
-    # --- Step 4: write ---
+    # Step 4: write 
     df_scaled.to_csv(output_dir / "arousal_feature_matrix_scaled.csv", index=False)
 
     print(f"\nSaved in: {output_dir}")

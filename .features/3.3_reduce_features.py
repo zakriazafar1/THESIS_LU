@@ -5,30 +5,13 @@
 Reduceert de arousal-featurematrix tot de 8 gekozen features, in alle drie
 de versies: origineel, getransformeerd (ln) en geschaald (z-score).
 
-Keuze (zie 3.1_corr_vif.py, corr_groups.csv / dendrogram):
-  Features zijn gegroepeerd met hiërarchische clustering op 1 - |Spearman rho|
-  (complete linkage, snijlijn |rho| = 0.8). Per frequentieband vallen L, R,
-  mean en de peak-varianten in één groep; per band is de over beide hemisferen
-  gemiddelde ratio behouden (mean_*_ratio):
-    - mean i.p.v. L/R: minder ruis, arousal is een globaal fenomeen (L~R r ~0.87)
-    - ratio i.p.v. peak_ratio: peak hangt meer samen met duration_sec
-  duration_sec, oxy_amp_ratio en motion_rms correleren met geen enkele andere
-  feature >= 0.8 en worden allemaal behouden.
-
-Nachtexclusie:
-  De transformed- en scaled-matrix zijn al zonder EXCLUDE_NIGHTS (gebeurt in
-  2.1). De originele matrix (FILTERED) nog niet -- die exclusie wordt hier
-  toegepast, met dezelfde lijst als in 2.1, zodat alle drie de versies
-  exact dezelfde events bevatten. Dat wordt gecontroleerd.
+Keuze (zie 3.1_corr_vif.py):
+Behouden:
+    - mean ratio band features: delta, theta, alpha, sigma, beta
+    - duration_sec, oxy_amp_ratio en motion_rms 
 
 Scaling hoeft niet opnieuw: z-scoring gebeurt per feature, dus een subset van
 kolommen uit de geschaalde matrix is identiek aan opnieuw schalen.
-
-Stappenplan:
-  1. Drie matrices inladen (origineel, getransformeerd, geschaald).
-  2. Nachten uitsluiten in de originele matrix.
-  3. Controle: zelfde events in dezelfde volgorde in alle drie.
-  4. Metadata + de 8 features selecteren en wegschrijven.
 
 Gebruik:
   python 3.3_reduce_features.py
@@ -77,15 +60,13 @@ KEEP_FEATURES = [
 # LEEG = niet nodig.
 EXCLUDE_NIGHTS: list[tuple[str, str]] = []
 
-
 # =============================================================================
-# SECTIE 1 — INLADEN
+# STAP 1: INLADEN
 # =============================================================================
 
 def read_csv_robust(path: Path, label: str) -> pd.DataFrame:
     """
-    Leest een CSV met automatische separator-detectie, en leest opnieuw in met
-    decimal=',' als numerieke kolommen als tekst binnenkomen (Excel-NL).
+    Leest een CSV.
     """
     if not path.exists():
         raise FileNotFoundError(f"{label}: {path} bestaat niet.")
@@ -108,7 +89,7 @@ def read_csv_robust(path: Path, label: str) -> pd.DataFrame:
 
 
 # =============================================================================
-# SECTIE 2 — NACHTEN UITSLUITEN
+# STAP 2: NACHTEN UITSLUITEN
 # =============================================================================
 
 def night_keys(df: pd.DataFrame) -> pd.Series:
@@ -126,11 +107,11 @@ def exclude_nights(df: pd.DataFrame, exclude: list[tuple[str, str]], label: str)
 
 
 # =============================================================================
-# SECTIE 3 — CONTROLES
+# STAP 3: CONTROLES
 # =============================================================================
 
 def check_columns(df: pd.DataFrame, label: str) -> list[str]:
-    """Controleert of alle KEEP_FEATURES aanwezig zijn; geeft de aanwezige metadata terug."""
+    """Controleert of alle KEEP_FEATURES aanwezig zijn."""
     missing = [c for c in KEEP_FEATURES if c not in df.columns]
     if missing:
         raise KeyError(f"{label}: deze features ontbreken: {missing}")
@@ -183,23 +164,23 @@ def main():
     out_dir = args.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Stap 1: inladen ---
+    # Inladen
     dfs = {
         "original": read_csv_robust(args.original, "original"),
         "transformed": read_csv_robust(args.transformed, "transformed"),
         "scaled": read_csv_robust(args.scaled, "scaled"),
     }
 
-    # --- Stap 2: nachten uitsluiten in de originele matrix ---
+    # Nachten uitsluiten als nodig
     dfs["original"] = exclude_nights(dfs["original"], EXCLUDE_NIGHTS, "original")
     for label in ("transformed", "scaled"):
         check_excluded_nights_gone(dfs[label], label)
 
-    # --- Stap 3: controles ---
+    # Controles 
     meta = {label: check_columns(d, label) for label, d in dfs.items()}
     check_same_events(dfs)
 
-    # --- Stap 4: selecteren + wegschrijven ---
+    # Selecteren van de 8 gekozen features + metadata
     names = {
         "original": "arousal_features_reduced_original.csv",
         "transformed": "arousal_features_reduced_transformed.csv",

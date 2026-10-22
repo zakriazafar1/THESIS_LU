@@ -8,27 +8,18 @@ arousal_feature_matrix_ORIGIN.csv. De andere nachten worden niet opnieuw
 berekend.
 
 Hoe:
-  - Gebruikt de functies uit 1_feature_matrix.py zelf (process_night e.d.),
-    zodat de features exact op dezelfde manier berekend worden.
+  - Gebruikt de functies uit 1_feature_matrix.py zelf.
   - Elk RUW EDF-kanaal wordt direct na inladen afgeknipt bij het clip-punt,
     dus VOOR preprocessing. Filters, whole-night band-medianen (baselines)
     en de whole-night OXY-std zien daardoor alleen het schone deel.
-    -> ook events VOOR het clip-punt krijgen (licht) andere waarden.
-  - Events die na het clip-punt eindigen (of eroverheen lopen) vervallen.
-  - Behouden events houden hun ORIGINELE event_idx en meta-kolommen
-    (stage_rk, start_sec, sec_prev_event, ...); alleen de featurekolommen
-    worden overschreven. Vervallen events laten een gat in event_idx achter,
-    net als in 1.2_clean_feature_matrix.py.
-
-Epoch-conventie (zoals in 1_feature_matrix.py / het hypnogram):
-  epoch 1 begint op t = 0 s. "Clip bij epoch N" = epoch N en alles daarna
-  valt weg, dus de data loopt van 0 tot (N - 1) * 30 s.
+    Events die na het clip-punt eindigen (of eroverheen lopen) vervallen.
+  - Behouden events houden hun ORIGINELE event_idx en meta-kolommen. Alleen 
+    de featurekolommen worden overschreven. 
 
 Gebruik:
   python 1.1_clip_nights.py --inspect        # alleen paden, aantallen, clip-tijden
   python 1.1_clip_nights.py                  # schrijft ..._ORIGIN_clipped.csv
   python 1.1_clip_nights.py --overwrite      # overschrijft ORIGIN (met backup),
-                                             # zodat 1.2 ongewijzigd kan draaien
 =============================================================================
 """
 
@@ -53,7 +44,7 @@ ORIGIN_FILE = FEATURE_DIR / "arousal_feature_matrix_ORIGIN.csv"
 
 EPOCH_SEC = 30.0
 
-# (subject_id, night_id) -> eerste epoch die WEGVALT (1-based, epoch 1 = t=0 s)
+# welke nachten clippen?
 CLIP_NIGHTS: dict[tuple[str, str], int] = {
     ("bnbd_nsr_17598", "T0_N1"): 1011,
     ("bnbd_nsr_16379", "T0_N1"): 990,
@@ -72,7 +63,7 @@ def clip_end_sec(clip_epoch: int) -> float:
 # =============================================================================
 
 def load_fm_module(path: Path):
-    """Importeert 1_feature_matrix.py (naam begint met een cijfer, dus via importlib)."""
+    """Importeert 1_feature_matrix.py."""
     if not path.exists():
         sys.exit(f"1_feature_matrix.py niet gevonden: {path}")
     spec = importlib.util.spec_from_file_location("feature_matrix", path)
@@ -82,7 +73,6 @@ def load_fm_module(path: Path):
 
 
 def load_feature_matrix(path: Path) -> pd.DataFrame:
-    """Zelfde inlezer als 1.2: komma/puntkomma-detectie + decimale komma's."""
     df = pd.read_csv(path, sep=None, engine="python")
     df.columns = [str(c).strip() for c in df.columns]
     for col in df.columns:
@@ -96,7 +86,6 @@ def load_feature_matrix(path: Path) -> pd.DataFrame:
 
 
 def find_night_dir(fm, subject_id: str, night_id: str) -> Path | None:
-    """Directe padconstructie (snel); valt terug op rglob binnen de groepsmap."""
     stem = f"{subject_id}_{night_id}"
     group_code = subject_id.split("_")[1].lower() if "_" in subject_id else ""
     groups = [g for g in fm.GROUPS if g.lower() == group_code] or list(fm.GROUPS)
@@ -115,7 +104,6 @@ def find_night_dir(fm, subject_id: str, night_id: str) -> Path | None:
 
 
 def make_clipped_loader(original_loader, t_end_sec: float, info: dict):
-    """Wrapper rond fm.load_channel die elk ruw kanaal afknipt op t_end_sec."""
     def loader(edf_dir, name):
         loaded = original_loader(edf_dir, name)
         if loaded is None:

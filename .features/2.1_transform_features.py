@@ -2,25 +2,16 @@
 =============================================================================
 2.1_transform_features.py
 
-Log transformation of the arousal feature matrix (arousal_feature_matrix_FILTERED.csv).
+Log transformatie van de arousal feature matrix. 
 
-Steps:
-  1. Plot the distribution of every feature (histogram with skewness),
-     before and after transformation.
-  2. Transform with a FIXED rule:
-       - all features -> natural log (ln)
-     Rationale: the spectral features are ratios (strictly positive, strongly
-     right-skewed, many values < 1). ln makes them symmetric around 0
-     (halving and doubling are equally far from 0) and removes most of the
-     skew. 
-     ln requires strictly positive values: the script stops with an error
-     if a log feature contains a value <= 0.
-     Skewness before/after is written per feature (transform_choices.csv).
+  1. Plot de distributie van elke feature voor en na transformatie.
+  2. Transformatie met natural log (ln) voor alle features behalve die in FORCE_UNTOUCHED_COLS.
+     Skewness voor/na wordt per feature opgeslagen (transform_choices.csv).
 
-  Scaling is done in 2.2_scale_features.py, which uses the
-  arousal_feature_matrix_transformed.csv written here as input.
+  Schalen wordt gedaan in 2.2_scale_features.py, dit script gebruikt 
+  de output van dit script als input.
 
-Usage:
+Gebruik:
   python 2.1_transform_features.py
   python 2.1_transform_features.py --input <path> --output-dir <folder>
 =============================================================================
@@ -37,7 +28,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import skew
 
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATIE
 # =============================================================================
 
 DEFAULT_INPUT = Path(
@@ -48,21 +39,21 @@ OUTPUT_DIR = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\transformed"
 )
 
-# Metadata columns, excluded from distribution plots and transformation.
+# Metadata columns (worden niet getransformeerd)
 METADATA_COLS = [
     "subject_id", "group", "night_id", "event_idx",
     "start_sec", "end_sec", "sec_prev_event",
     "stage_rk"
 ]
 
-# Nights excluded because of a night-level baseline/recording artefact.
-#EMPTY if not needed.
+# Eventueel om nachten met slechte kwaliteit weg te laten.
+
 EXCLUDE_NIGHTS: list[tuple[str, str]] = [ ]
 
 # Features that are NOT transformed 
 FORCE_UNTOUCHED_COLS: list[str] = []
 
-# Frequency bands (rows of the spectral panels) with their label in the figure.
+# Frequency bands met figuurlabels 
 BANDS: list[tuple[str, str]] = [
     ("delta", "Delta\n(0.5-4 Hz)"),
     ("theta", "Theta\n(4-8 Hz)"),
@@ -71,15 +62,15 @@ BANDS: list[tuple[str, str]] = [
     ("beta",  "Beta\n(16-30 Hz)"),
 ]
 
-# Labels and units for the non-spectral features (bottom row).
+# Labels en units voor de non-spectral features.
 # feature: (panel label, x-axis label on the original scale)
 FEATURE_LABELS: dict[str, tuple[str, str]] = {
-    "duration_sec":  ("Duration",            "Duration (s)"),
-    "motion_rms":    ("Motion RMS",          "RMS Acceleration (g)"),
+    "duration_sec":  ("Duration", "Duration (s)"),
+    "motion_rms":    ("Motion RMS", "RMS Acceleration (g)"),
     "oxy_amp_ratio": ("PPG Amplitude Ratio", "EventRatio"),
 }
 
-# Before-transformation figure: x-axis of the spectral panels is cut at this
+# Before-transformation figure > x-axis of the spectral panels is cut at this
 # quantile (pooled over the panel) so the distribution is readable.
 DISPLAY_QUANTILE = 0.99
 N_BINS = 40
@@ -125,11 +116,7 @@ COLOR_REF = "#8C8C8C"
 # =============================================================================
 
 def load_feature_matrix(path: Path) -> pd.DataFrame:
-    """
-    Reads the feature matrix. Detects the delimiter automatically, then checks 
-    whether numeric columns came in as text (Dutch Excel scenario: semicolon as 
-    delimiter AND comma as decimal separator) -- if so, reads again with decimal=",".
-    """
+    """Reads the feature matrix."""
     df = pd.read_csv(path, sep=None, engine="python")
 
     if df.shape[1] == 1:
@@ -163,7 +150,6 @@ def exclude_nights(df: pd.DataFrame, exclude: list[tuple[str, str]],
                    log_path: Path) -> pd.DataFrame:
     """
     Removes all events of the given (subject_id, night_id) combinations.
-    Filters on the combination, because night_id (T0_N1 etc.) recurs for every subject.
     Writes how many events were removed per night.
     """
     if not exclude:
@@ -269,7 +255,7 @@ def other_x_label(col: str, log_transformed: bool) -> str:
 def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path,
                        log_cols: list[str] | None = None) -> None:
     """
-    APA 7 figure.
+    APA 7 figure
       Top block: rows = bands; columns = Mean Amplitude (L/R overlaid),
                  Peak Amplitude (L/R overlaid), L/R Average.
       Bottom row: the non-spectral features (duration, motion, PPG).
@@ -287,7 +273,7 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
     top_fig, bottom_fig = fig.subfigures(2, 1, height_ratios=[1.85 * len(bands) + 0.5,
                                                            2.3 * n_other_rows + 0.8])
 
-    # ---- top block: spectral features --------------------------------------
+    # top block: spectral features 
     axes = top_fig.subplots(len(bands), 3, squeeze=False)
     for col_i, title in enumerate(["Mean Amplitude", "Peak Amplitude", "L/R Average"]):
         axes[0, col_i].set_title(title, fontweight="bold", pad=8)
@@ -306,7 +292,7 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
     top_fig.supxlabel(x_lab, fontsize=10)
     top_fig.supylabel("Number of Events", fontsize=10)
 
-    # ---- bottom row(s): other features -------------------------------------
+    # bottom row: other features 
     if other:
         bax = bottom_fig.subplots(n_other_rows, 3, squeeze=False).flatten()
         for i, c in enumerate(other):
@@ -319,7 +305,7 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
         for j in range(len(other), len(bax)):
             bax[j].axis("off")
 
-    # ---- legend (inside the image, at the bottom) ---------------------------
+    # legend 
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
     handles = [
@@ -371,7 +357,7 @@ def check_strictly_positive(df: pd.DataFrame, log_cols: list[str]) -> None:
 
 def apply_log_transform(df: pd.DataFrame, log_cols: list[str], untouched_cols: list[str]
                         ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Applies ln to log_cols; untouched_cols stay original. Returns df + overview."""
+    """Applies ln to log_cols. Returns df + overview."""
     out = df.copy()
     choices = []
     for c in log_cols + untouched_cols:
@@ -400,10 +386,10 @@ def run(df: pd.DataFrame, feature_cols: list[str], output_dir: Path,
         nights_excluded: bool) -> pd.DataFrame:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Step 1: distributions before transformation ---
+    # Step 1: distributions before transformation
     plot_distributions(df, feature_cols, output_dir / "feature_distributions.png")
 
-    # --- Step 2: transformation ---
+    # Step 2: transformation
     log_cols, untouched_cols = classify_transform_columns(feature_cols)
     check_strictly_positive(df, log_cols)
     df_t, transform_choices = apply_log_transform(df, log_cols, untouched_cols)

@@ -3,27 +3,25 @@
 4_hdbscan.py
 
 HDBSCAN on three inputs, run automatically one after the other:
-  1. whitened         -- pca_scores_<k>pc_whitened.csv   (every PC weighs equally)
-  2. unwhitened       -- pca_scores_<k>pc_unwhitened.csv (PC1 dominates)
-  3. reduced_features -- arousal_features_reduced_scaled.csv (the 8 scaled features)
+  1. whitened         -- pca_scores_<k>pc_whitened.csv   
+  2. unwhitened       -- pca_scores_<k>pc_unwhitened.csv 
+  3. reduced_features -- arousal_features_reduced_scaled.csv 
 
 Each run writes its output to its own subfolder OUTPUT_DIR/<tag>.
 With --allow-single-cluster all three runs are done with
 allow_single_cluster=True and saved under <tag>_single.
 
 Features are detected automatically: if there are columns starting with "PC",
-those are the features; otherwise all numeric non-metadata columns.
+those are the features, otherwise all numeric non-metadata columns.
 
-Parameters (the two that matter):
+Parameters:
   min_cluster_size  -- the smallest group you would still call a "subtype".
   min_samples       -- how conservative: the larger, the more points are labelled
                        noise (-1) and the more only truly dense regions become
-                       clusters. HDBSCAN default = min_cluster_size.
+                       clusters. 
   cluster_selection_method
                     -- 'eom' (default): selects the most stable, often larger clusters.
                        'leaf': selects the smallest, finest clusters in the tree.
-                       For a continuum, 'eom' often gives 1 large cluster + noise,
-                       'leaf' fragments. Trying both is informative.
   allow_single_cluster
                     -- by default HDBSCAN excludes the root of the cluster tree
                        (the whole dataset), so it can return 0 or >= 2 clusters
@@ -34,11 +32,10 @@ Scoring (label-free):
   HDBSCAN's relative_validity_ (fast DBCV approximation), higher = better.
   Plus sanity checks (number of clusters, noise fraction): configurations with
   one giant cluster or 90% noise can still score well on relative_validity.
-  Note: these sanity checks steer towards "there are clusters". The script
-  therefore also reports how many configurations did NOT pass -- if almost
+  The script also reports how many configurations did NOT pass -- if almost
   nothing passes, that itself indicates there is no clear cluster structure.
 
-Stability (top-N configurations only):
+Stability (top-5 configurations only):
   Repeated re-clustering on a random 80% of the SUBJECTS (not of the events,
   because events from the same night/person resemble each other). Per
   repetition: Adjusted Rand Index (ARI) between the labels on the full data
@@ -48,13 +45,7 @@ Stability (top-N configurations only):
 Final result:
   For the best configuration (or one chosen with --final), labels, membership
   probabilities and outlier scores per event are saved, plus per cluster its
-  size and how many different subjects it contains (a "cluster" coming from a
-  few people is probably not an arousal subtype).
-
-Cluster colours:
-  Colour and marker are tied to the cluster NUMBER (0 = blue, 1 = green,
-  2 = orange, 3 = purple, 4 = pink, 5 = amber, 6 = red), so they are the same
-  in every run and every figure. Noise (-1) is always grey.
+  size and how many different subjects it contains.
 
 Usage:
   python 4_hdbscan.py                          # all 3 runs, default grid
@@ -69,7 +60,6 @@ Usage:
                                                # that contains hdbscan_final_labels.csv
   python 4_hdbscan.py --plot-only --runs whitened unwhitened
   python 4_hdbscan.py --plot-only --runs whitened --allow-single-cluster   # whitened_single
-  python 4_hdbscan.py --plot-only --tag my_custom_tag
   python 4_hdbscan.py --plot-only --output-dir "D:\\andere\\map"
 
 Output (in OUTPUT_DIR/<tag>[_single]):
@@ -122,21 +112,20 @@ OUTPUT_DIR = BASE / r"5. clustering_centered/3. hdbscan centered"
 # None = detect automatically (if there is exactly one file per variant).
 PCA_N_COMPONENTS = 5 
 
-# The three runs, in this order. Output goes to OUTPUT_DIR/<tag>.
-# RUN_TAGS = ["whitened", "unwhitened", "reduced_features"]
+# The three runs
 RUN_TAGS = ["whitened_centered", "unwhitened_centered", "features_8_centered"]  
 
-# Full grid.
+# Full grid
 DEFAULT_MIN_CLUSTER_SIZE = [65, 130, 260, 650]
 DEFAULT_MIN_SAMPLES = [5, 10, 25, 50, 100]
 DEFAULT_SELECTION = ["eom", "leaf"]
 
-# --quick grid.
+# --quick grid
 QUICK_MIN_CLUSTER_SIZE = [130, 260]
 QUICK_MIN_SAMPLES = [10, 50]
 QUICK_SELECTION = ["eom"]
 
-# Sanity checks for "valid" configurations.
+# Sanity checks for "valid" configurations
 MIN_CLUSTERS = 1
 MAX_CLUSTERS = 5
 MAX_NOISE_FRACTION = 0.5
@@ -154,8 +143,7 @@ METADATA_COLS = [
     "cluster", "membership_probability", "outlier_score",
 ]
 
-# Axis labels: interpretation per PC (based on the loadings from 3_pca.py),
-# and readable names when HDBSCAN runs on the scaled features themselves.
+# Axis labels: interpretation per PC (based on the loadings from 3_pca.py)
 PC_LABELS = {
     "PC1": "PC1: overall spectral activation",
     "PC2": "PC2: event duration",
@@ -171,8 +159,7 @@ PC_LABELS = {
     "oxy_amp_ratio": "PPG amplitude ratio ($z$)",
     "motion_rms": "Head movement RMS ($z$)",
 }
-# Fixed plot pairs for features (instead of PCs) when there are < 2 clusters:
-# spectral intensity x duration, and slow (delta) x fast (beta).
+# Fixed plot pairs for features (instead of PCs) when there are < 2 clusters
 FEATURE_PLOT_PAIRS = [("mean_theta_ratio", "duration_sec"),
                       ("mean_delta_ratio", "mean_beta_ratio")]
 
@@ -182,8 +169,7 @@ FIG_DPI = 300
 # APA 7 FIGURE STYLE
 # =============================================================================
 
-# Fixed colour + marker per CLUSTER NUMBER (cluster 0 = index 0, etc.),
-# identical in every run and every figure.
+# Fixed colour + marker per CLUSTER NUMBER 
 CLUSTER_COLORS = ["#2a78d6",  # 0 blue
                   "#1baf7a",  # 1 green
                   "#eb6834",  # 2 orange
@@ -234,7 +220,6 @@ def save_figure(fig, out_path: Path) -> None:
 # =============================================================================
 
 def read_csv_robust(path: Path) -> pd.DataFrame:
-    """CSV with automatic delimiter detection and fallback to decimal=','."""
     if not path.exists():
         raise FileNotFoundError(f"{path} does not exist -- run 3_pca.py / 3.3_reduce_features.py first.")
     df = pd.read_csv(path, sep=None, engine="python")
@@ -303,10 +288,7 @@ def build_runs(args) -> list[tuple[str, Path]]:
 
 def build_plot_only_runs(args, runs_explicit: bool) -> list[tuple[str, None]]:
     """
-    Which subfolders of the output dir to redraw with --plot-only:
-      --tag X          -> only X (+ '_single' with --allow-single-cluster)
-      --runs a b       -> only those runs (+ '_single' with --allow-single-cluster)
-      neither          -> every direct subfolder that contains hdbscan_final_labels.csv
+    Which subfolders of the output dir to redraw with --plot-only
     """
     if not args.output_dir.exists():
         sys.exit(f"Output dir does not exist: {args.output_dir}")
@@ -393,7 +375,7 @@ def rank_grid(grid: pd.DataFrame) -> pd.DataFrame:
 def stability(X: np.ndarray, subjects: np.ndarray, mcs: int, ms: int, method: str,
               allow_single: bool, n_resamples: int, frac: float, seed: int) -> dict:
     """
-    Fit on all data, then repeatedly on a random `frac` of the subjects.
+    Fit on all data, then repeatedly on a random fraction of the subjects.
     ARI between both labellings on the shared events (noise = own label).
     """
     _, full_labels = fit_hdbscan(X, mcs, ms, method, allow_single, validity=False)
@@ -477,7 +459,7 @@ def _style_axes(ax) -> None:
 
 
 def _cluster_ids(labels: pd.Series) -> list[int]:
-    """Clusters sorted by size (largest first), without noise. Used for drawing order."""
+    """Clusters sorted by size (largest first), without noise."""
     counts = labels[labels != -1].value_counts()
     return list(counts.index)
 
@@ -531,9 +513,7 @@ def _scatter_pair(ax, df: pd.DataFrame, x: str, y: str, styles: dict,
 
 def _discriminating_pair(df: pd.DataFrame, pc_cols: list[str]) -> tuple[str, str]:
     """
-    The PC pair on which the clusters differ most: per PC the ratio of
-    between-cluster to within-cluster variance (F), the two highest.
-    With < 2 clusters: PC1 x PC5 (spectral intensity x spectral shape).
+    The PC pair on which the clusters differ most
     """
     sub = df[df["cluster"] != -1]
     if sub["cluster"].nunique() < 2:
@@ -634,7 +614,7 @@ def plot_pairs(df: pd.DataFrame, pc_cols: list[str], out_dir: Path) -> None:
             elif j > 0:
                 ax.set_yticklabels([])
 
-    # legend (+ PC key for PC inputs) in the empty upper-right corner
+    # legend
     fig.legend(handles=_legend_handles(df["cluster"], styles), loc="upper right",
                bbox_to_anchor=(0.98, 0.98), frameon=False, fontsize=13)
     if pc_cols[0].upper().startswith("PC"):
@@ -682,7 +662,7 @@ def run_one(args, tag: str, input_path: Path) -> dict:
     print(f"Grid: {len(args.min_cluster_size)} x {len(args.min_samples)} x "
           f"{len(args.selection)} = {n_cfg} configurations\n")
 
-    # --- Step 1: grid ---
+    # Grid
     grid = run_grid(X, args.min_cluster_size, args.min_samples, args.selection,
                     args.allow_single_cluster)
     grid.to_csv(out_dir / "hdbscan_grid.csv", index=False)
@@ -706,7 +686,7 @@ def run_one(args, tag: str, input_path: Path) -> dict:
         print("\nTop 10:")
         print(ranked[show].head(10).to_string(index=False))
 
-    # --- Step 2: stability of the top N ---
+    # Stability of the top configs
     top = ranked.head(args.top_n)
     print(f"\nStability top {len(top)} ({args.n_resamples}x {SUBJECT_FRACTION:.0%} of the subjects):")
     stab_rows = []
@@ -723,7 +703,7 @@ def run_one(args, tag: str, input_path: Path) -> dict:
     stab = pd.DataFrame(stab_rows)
     stab.to_csv(out_dir / "hdbscan_stability.csv", index=False)
 
-    # --- Step 3: final configuration ---
+    # Final config
     if args.final:
         mcs, ms, method = int(args.final[0]), int(args.final[1]), args.final[2]
         if method not in ("eom", "leaf"):
@@ -794,7 +774,7 @@ def main():
     if args.runs is None:
         args.runs = RUN_TAGS
 
-    # --- plot only: redraw figures from saved labels, nothing else ---
+    # Only plots: redraw figures from saved labels
     if args.plot_only:
         print(f"Plot only -- output dir: {args.output_dir}")
         runs = build_plot_only_runs(args, runs_explicit)

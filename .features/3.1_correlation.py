@@ -6,31 +6,24 @@ Correlation check on the scaled arousal feature matrix
 (output of 2.2_scale_features.py).
 
 Main analysis: Spearman on the scaled matrix
-  Spearman is rank-based: robust to outliers and skewed distributions, and
-  captures non-linear (but monotonic) associations. It is also invariant to
-  any monotonic transformation (log, scaling), so the conclusion does not
-  depend on the chosen transformation.
+  Spearman is rank-based: robust to outliers and skewed distributions.
 
 Check: Pearson on the same matrix
   Pearson measures linear association on exactly the values the clustering
   sees (after transformation + scaling). Pairs where Spearman and Pearson
-  differ strongly point to outliers or non-linear (but monotonic)
-  associations -> inspect visually.
+  differ strongly point to outliers or non-linearity.
 
 Steps:
-  1. Load the scaled feature matrix (arousal_feature_matrix_scaled.csv).
+  1. Load the scaled feature matrix.
   2. Spearman correlation matrix (main) + Pearson correlation matrix (check).
   3. Heatmaps of both.
   4. Highly correlated pairs (|rho| > CORR_THRESHOLD, Spearman), with Pearson.
   5. Pairs where |rho - r| > DIFF_THRESHOLD (Spearman and Pearson diverge).
   6. CORRELATION GROUPS: features that all correlate |rho| >= GROUP_THRESHOLD
-     with each other (hierarchical clustering on 1 - |rho|, complete linkage).
-     Pick one feature per group. Per feature: mean |rho| with the rest of the
-     group (how "central") and % missing -> helps with the choice.
-     Complete linkage guarantees that EVERY pair within a group correlates
-     >= the threshold (no chains A~B~C where A and C barely correlate).
+     with each other. Pick one feature per group. Complete linkage guarantees 
+     that EVERY pair within a group correlates >= the threshold.
 
-Figures follow APA 7 style.
+Figures in APA 7 style.
 
 Usage:
   python 3.1_correlation.py
@@ -70,11 +63,11 @@ METADATA_COLS = [
     "stage_rk",
 ]
 
-CORR_THRESHOLD = 0.70   # |rho| (Spearman) above this = highly correlated
+CORR_THRESHOLD = 0.70   # Spearman 
 DIFF_THRESHOLD = 0.15   # |rho - r| above this = Spearman and Pearson diverge
 
 GROUP_METHOD = "spearman"   # correlation the groups are based on
-GROUP_THRESHOLD = 0.70      # within a group: every pair |rho| >= this value
+GROUP_THRESHOLD = 0.70      # within a group: every pair |corr| >= this value
 
 FIG_DPI = 300
 
@@ -128,9 +121,7 @@ SPECIAL_LABELS = {
 
 def pretty_label(name: str) -> str:
     """
-    Readable feature name for figures, e.g.
-      L_delta_peak_ratio -> 'Delta peak ratio (L)'
-      mean_alpha_ratio   -> 'Alpha ratio (mean)'
+    Readable feature name for figures.
     Unknown names are returned with underscores replaced by spaces.
     """
     if name in SPECIAL_LABELS:
@@ -144,7 +135,7 @@ def pretty_label(name: str) -> str:
 
 
 def apa_corr(v: float) -> str:
-    """APA format for correlations: two decimals, no leading zero (.85, −.32)."""
+    """APA format for correlations."""
     if pd.isna(v):
         return ""
     s = f"{v:.2f}"
@@ -164,9 +155,7 @@ def save_figure(fig, out_path: Path) -> None:
 
 def load_scaled_matrix(path: Path) -> pd.DataFrame:
     """
-    Reads the scaled feature matrix. Same separator/decimal detection as in
-    2.2_scale_features.py, in case the file was opened and saved with a
-    Dutch Excel locale in between.
+    Reads the scaled feature matrix.
     """
     if not path.exists():
         raise FileNotFoundError(
@@ -202,7 +191,7 @@ def load_scaled_matrix(path: Path) -> pd.DataFrame:
 
 
 def get_feature_columns(df: pd.DataFrame) -> list[str]:
-    """All columns except the metadata columns -> these are the features to check."""
+    """All columns except the metadata columns."""
     return [c for c in df.columns if c not in METADATA_COLS]
 
 
@@ -218,9 +207,7 @@ def compute_corr(df: pd.DataFrame, feature_cols: list[str], method: str) -> pd.D
 
 def plot_corr_heatmap(corr: pd.DataFrame, out_path: Path, method: str) -> None:
     """
-    APA-style heatmap: lower triangle only (the matrix is symmetric and the
-    diagonal is always 1), readable feature names, diverging colour scale
-    centred on 0, annotated (APA format) when the matrix is small enough.
+    APA-style heatmap.
     """
     n = len(corr)
     labels = [pretty_label(c) for c in corr.columns]
@@ -284,14 +271,14 @@ def upper_triangle_pairs(spearman: pd.DataFrame, pearson: pd.DataFrame) -> pd.Da
 
 
 def list_high_corr_pairs(pairs: pd.DataFrame, threshold: float) -> pd.DataFrame:
-    """Pairs with |Spearman rho| > threshold, sorted from high to low."""
+    """Pairs with |Spearman| > threshold, sorted from high to low."""
     out = pairs[pairs["spearman_rho"].abs() > threshold].copy()
     out = out.reindex(out["spearman_rho"].abs().sort_values(ascending=False).index)
     return out.round(4).reset_index(drop=True)
 
 
 def list_divergent_pairs(pairs: pd.DataFrame, threshold: float) -> pd.DataFrame:
-    """Pairs where Spearman and Pearson differ by more than `threshold`."""
+    """Pairs where Spearman and Pearson differ by more than threshold."""
     out = pairs[pairs["diff_rho_minus_r"].abs() > threshold].copy()
     out = out.reindex(out["diff_rho_minus_r"].abs().sort_values(ascending=False).index)
     return out.round(4).reset_index(drop=True)
@@ -303,9 +290,9 @@ def list_divergent_pairs(pairs: pd.DataFrame, threshold: float) -> pd.DataFrame:
 
 def find_corr_groups(corr: pd.DataFrame, threshold: float) -> pd.Series:
     """
-    Hierarchical clustering on distance 1 - |r|, complete linkage, cut at
-    1 - threshold. Result: group number per feature. Within a group every
-    pair has |r| >= threshold.
+    Hierarchical clustering on distance 0.3, complete linkage, cut at
+    0.3. Result: group number per feature. Within a group every pair has 
+    corr >= threshold.
     """
     dist = 1 - corr.abs().fillna(0).to_numpy()
     np.fill_diagonal(dist, 0)
@@ -317,7 +304,7 @@ def find_corr_groups(corr: pd.DataFrame, threshold: float) -> pd.Series:
 
 def summarize_groups(corr: pd.DataFrame, groups: pd.Series, df: pd.DataFrame) -> pd.DataFrame:
     """
-    One row per feature: group, group size, mean and minimum |rho| with the
+    One row per feature: group, group size, mean and minimum |corr| with the
     other group members, and % missing. Groups numbered 1..k by size.
     'suggested' = the most central member (highest mean |rho|) -- only a
     starting point, choose on content.
@@ -415,7 +402,7 @@ def main():
     feature_cols = get_feature_columns(df)
     print(f"\n{len(feature_cols)} features (metadata columns excluded): {feature_cols}")
 
-    # --- Steps 2+3: correlation matrices + heatmaps ---
+    # Correlation matrices + heatmaps 
     spearman = compute_corr(df, feature_cols, "spearman")
     pearson = compute_corr(df, feature_cols, "pearson")
     spearman.to_csv(out_dir / "spearman_corr_matrix.csv")
@@ -425,19 +412,19 @@ def main():
 
     pairs = upper_triangle_pairs(spearman, pearson)
 
-    # --- Step 4: highly correlated pairs (Spearman) ---
+    # Highly correlated pairs (Spearman)
     high_corr = list_high_corr_pairs(pairs, CORR_THRESHOLD)
     high_corr.to_csv(out_dir / "high_corr_pairs.csv", index=False)
     print(f"\nStep 4: {len(high_corr)} pair(s) with |rho| > {CORR_THRESHOLD} (Spearman):")
     print(high_corr.to_string(index=False) if not high_corr.empty else "  (none)")
 
-    # --- Step 5: Spearman vs Pearson diverge ---
+    # Spearman vs Pearson diverge 
     divergent = list_divergent_pairs(pairs, DIFF_THRESHOLD)
     divergent.to_csv(out_dir / "pearson_vs_spearman_divergent.csv", index=False)
     print(f"\nStep 5: {len(divergent)} pair(s) with |rho - r| > {DIFF_THRESHOLD}:")
     print(divergent.to_string(index=False) if not divergent.empty else "  (none)")
 
-    # --- Step 6: correlation groups ---
+    # Correlation groups 
     group_corr = spearman if GROUP_METHOD == "spearman" else pearson
     groups, Z = find_corr_groups(group_corr, GROUP_THRESHOLD)
     summary = summarize_groups(group_corr, groups, df)

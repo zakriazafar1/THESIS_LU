@@ -7,7 +7,6 @@ en het bereik (physical_min/max, digital_min/max).
 
 Gebruik:
   python .check_edf.py --edf "<pad naar .edf>"
-  python .check_edf.py --edf "<pad naar .edf>" --channels dX EEG-R
   python .check_edf.py --edf "<pad naar .edf>" --channels dX EEG-R --preview 5
 =============================================================================
 """
@@ -83,7 +82,7 @@ def read_edf_header(edf_path: Path):
 
 def preview_samples(edf_path: Path, header: dict, channel_label: str, n_preview: int):
     """
-    Leest de eerste n_preview RUWE (digitale) samples van 1 kanaal, en rekent
+    Leest de eerste n_preview RUWE samples van 1 kanaal, en rekent
     ze om naar physical values met dezelfde formule die readSignal() ook
     gebruikt: physical = dig_value * gain + offset, waarbij
         gain   = (phys_max - phys_min) / (dig_max - dig_min)

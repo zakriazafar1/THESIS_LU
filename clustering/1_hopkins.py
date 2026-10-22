@@ -2,7 +2,6 @@
 1_hopkins.py
 
 Hopkins statistic on the REDUCED scaled feature matrix.
-
 Tests whether the feature matrix has ANY inherent clustering tendency at all.
 
 Steps:
@@ -17,14 +16,13 @@ For each of --n-repeats repeats:
     5. H = sum(u_i) / (sum(u_i) + sum(w_i))
 
 INTERPRETATION:
-    H ~ 0.5   -> no clustering tendency (resembles uniform random noise)
+    H ~ 0.5 -> no clustering tendency (resembles uniform random noise)
     H > ~0.75 -> evidence of real clustering tendency
-    H ~ 0     -> rare in practice; regularly/evenly spaced data
+    H ~ 0 -> regularly/evenly spaced data
 
 CAVEAT: 
-  - Uniform sampling within the bounding box is sensitive to outliers
-    (a few extreme z-scores stretch the box and inflate u_i, pushing H up).
-    Heavy-tailed or skewed data can therefore give H > 0.5 without real
+  - Uniform sampling within the bounding box is sensitive to outliers.
+    Heavy-tailed or skewed data can therefore give high H values without real
     clusters. Use --trim-quantile to check robustness.
 
 Usage:
@@ -117,7 +115,6 @@ def load_features(path: Path, id_columns):
     df = pd.read_csv(path, sep=delimiter, decimal=decimal)
     print(f"Detected delimiter='{delimiter}', decimal='{decimal}'")
 
-    # Drop an unnamed index column if one was written by pandas upstream
     df = df.loc[:, ~df.columns.str.match(r"^Unnamed")]
 
     present_id_cols = [c for c in id_columns if c in df.columns]
@@ -141,7 +138,6 @@ def load_features(path: Path, id_columns):
 
 
 # Hopkins statistic 
-
 def hopkins_statistic(X: np.ndarray, sample_size: int, rng: np.random.Generator,
                       lo: np.ndarray, hi: np.ndarray) -> float:
     """One draw of H. Synthetic points are uniform within [lo, hi] per feature."""
