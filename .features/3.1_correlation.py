@@ -114,7 +114,7 @@ BAND_NAMES = {"delta": "Delta", "theta": "Theta", "alpha": "Alpha",
               "sigma": "Sigma", "beta": "Beta"}
 SPECIAL_LABELS = {
     "duration_sec": "Duration",
-    "oxy_amp_ratio": "PPG amplitude ratio",
+    "oxy_amp_ratio": "PPG ratio",
     "motion_rms": "Head movement RMS",
 }
 
