@@ -1,11 +1,10 @@
 """
-=============================================================================
-3.3_reduce_features.py
+3.2_reduce_features.py
 
 Reduceert de arousal-featurematrix tot de 8 gekozen features, in alle drie
 de versies: origineel, getransformeerd (ln) en geschaald (z-score).
 
-Keuze (zie 3.1_corr_vif.py):
+Keuze (zie 3.1_correlations.py):
 Behouden:
     - mean ratio band features: delta, theta, alpha, sigma, beta
     - duration_sec, oxy_amp_ratio en motion_rms 
@@ -14,8 +13,7 @@ Scaling hoeft niet opnieuw: z-scoring gebeurt per feature, dus een subset van
 kolommen uit de geschaalde matrix is identiek aan opnieuw schalen.
 
 Gebruik:
-  python 3.3_reduce_features.py
-=============================================================================
+  python 3.2_reduce_features.py
 """
 
 import argparse
@@ -23,13 +21,10 @@ from pathlib import Path
 
 import pandas as pd
 
-# =============================================================================
-# CONFIGURATIE
-# =============================================================================
 
+# CONFIGURATIE
 BASE = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2"
-)
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
 
 ORIGINAL_PATH = BASE / r"1. feature matrices\.feature info\arousal_feature_matrix_FILTERED.csv"
 TRANSFORMED_PATH = BASE / r"2. preprocessing\transformed\arousal_feature_matrix_transformed.csv"
@@ -39,8 +34,7 @@ OUTPUT_DIR = BASE / r"reduced feature matrix"
 
 METADATA_COLS = [
     "subject_id", "group", "night_id", "event_idx",
-    "start_sec", "end_sec", "stage_rk",
-]
+    "start_sec", "end_sec", "stage_rk"]
 
 # Kolommen die samen één event uniek identificeren 
 EVENT_KEY = ["subject_id", "night_id", "event_idx"]
@@ -53,17 +47,15 @@ KEEP_FEATURES = [
     "mean_beta_ratio",
     "duration_sec",
     "oxy_amp_ratio",
-    "motion_rms",
-]
+    "motion_rms"
+    ]
 
 # Moet gelijk zijn aan EXCLUDE_NIGHTS in 2.1_transform_features.py. 
 # LEEG = niet nodig.
 EXCLUDE_NIGHTS: list[tuple[str, str]] = []
 
-# =============================================================================
-# STAP 1: INLADEN
-# =============================================================================
 
+# STAP 1: INLADEN
 def read_csv_robust(path: Path, label: str) -> pd.DataFrame:
     """
     Leest een CSV.
@@ -88,10 +80,7 @@ def read_csv_robust(path: Path, label: str) -> pd.DataFrame:
     return df
 
 
-# =============================================================================
 # STAP 2: NACHTEN UITSLUITEN
-# =============================================================================
-
 def night_keys(df: pd.DataFrame) -> pd.Series:
     return df["subject_id"].astype(str).str.strip() + "|" + df["night_id"].astype(str).str.strip()
 
@@ -106,10 +95,8 @@ def exclude_nights(df: pd.DataFrame, exclude: list[tuple[str, str]], label: str)
     return df.loc[~mask].reset_index(drop=True)
 
 
-# =============================================================================
-# STAP 3: CONTROLES
-# =============================================================================
 
+# STAP 3: CONTROLES
 def check_columns(df: pd.DataFrame, label: str) -> list[str]:
     """Controleert of alle KEEP_FEATURES aanwezig zijn."""
     missing = [c for c in KEEP_FEATURES if c not in df.columns]
@@ -150,10 +137,8 @@ def check_excluded_nights_gone(df: pd.DataFrame, label: str) -> None:
                          "-- draai 2.1 en 2.2 opnieuw.")
 
 
-# =============================================================================
-# HOOFDLOOP
-# =============================================================================
 
+# HOOFDLOOP
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--original", type=Path, default=ORIGINAL_PATH)

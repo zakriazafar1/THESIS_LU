@@ -51,10 +51,8 @@ from matplotlib.lines import Line2D
 import seaborn as sns
 from sklearn.decomposition import PCA
 
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
 
+# CONFIGURATION
 BASE = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2"
 )
@@ -82,10 +80,7 @@ RANDOM_STATE = 2554542
 
 FIG_DPI = 300
 
-# =============================================================================
-# APA 7 FIGURE STYLE
-# =============================================================================
-
+# APA 7 FIGURE 
 TEXT_COLOR = "#000000"
 BAR_COLOR = "#2a78d6"          # retained components
 BAR_COLOR_DROPPED = "#C9D9EF"  # components not retained
@@ -168,10 +163,7 @@ def panel_letter(ax, letter: str, x: float = -0.12) -> None:
             fontweight="bold", va="bottom", color=TEXT_COLOR)
 
 
-# =============================================================================
 # STEP 1: LOADING
-# =============================================================================
-
 def read_csv_robust(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"{path} does not exist -- run 3.3_reduce_features.py first.")
@@ -200,10 +192,7 @@ def parse_n_components(value: str, n_features: int) -> int | float:
     return k
 
 
-# =============================================================================
 # STEP 2: PCA
-# =============================================================================
-
 def fit_full_pca(X: pd.DataFrame) -> tuple[PCA, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     PCA with all components. Returns the model + tables for explained variance,
@@ -240,9 +229,8 @@ def resolve_k(ev: pd.DataFrame, n_components: int | float) -> int:
     return n_components
 
 
-# =============================================================================
+
 # STEP 3: PLOTS
-# =============================================================================
 
 def plot_scree(ev: pd.DataFrame, k: int, out_path: Path) -> None:
     """
@@ -316,10 +304,7 @@ def plot_loadings(corr: pd.DataFrame, ev: pd.DataFrame, k: int, out_path: Path) 
     print(f"Loadings heatmap saved: {out_path} (+ .pdf)")
 
 
-# =============================================================================
 # STEP 4: CORRELATION BETWEEN THE PCs
-# =============================================================================
-
 def pc_correlations(X: pd.DataFrame, full: PCA) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Pearson and Spearman correlation matrix of the scores of ALL PCs.
@@ -376,10 +361,7 @@ def plot_pc_correlations(pear: pd.DataFrame, spear: pd.DataFrame, k: int, out_pa
     print(f"PC correlation heatmap saved: {out_path} (+ .pdf)")
 
 
-# =============================================================================
 # STEP 5: SCORES (with / without whitening)
-# =============================================================================
-
 def compute_scores(X: pd.DataFrame, full: PCA, k: int, whiten: bool) -> pd.DataFrame:
     """
     PC scores of the first k components. Uses the same (sign-corrected)

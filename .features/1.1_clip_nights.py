@@ -1,5 +1,4 @@
 """
-=============================================================================
 1.1_clip_nights.py
 
 Herberekent de features van een paar nachten waarvan het laatste deel van de
@@ -20,7 +19,6 @@ Gebruik:
   python 1.1_clip_nights.py --inspect        # alleen paden, aantallen, clip-tijden
   python 1.1_clip_nights.py                  # schrijft ..._ORIGIN_clipped.csv
   python 1.1_clip_nights.py --overwrite      # overschrijft ORIGIN (met backup),
-=============================================================================
 """
 
 import argparse
@@ -32,15 +30,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# =============================================================================
-# CONFIGURATIE
-# =============================================================================
 
+# CONFIGURATIE
 HERE = Path(__file__).resolve().parent
 FM_SCRIPT = HERE / "1_feature_matrix.py"
 
-FEATURE_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
-ORIGIN_FILE = FEATURE_DIR / "arousal_feature_matrix_ORIGIN.csv"
+FEATURE_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices")
+ORIGIN_FILE = FEATURE_DIR / "arousal_feature_matrix_ORIGIN_corrected.csv"
 
 EPOCH_SEC = 30.0
 
@@ -49,6 +45,7 @@ CLIP_NIGHTS: dict[tuple[str, str], int] = {
     ("bnbd_nsr_17598", "T0_N1"): 1011,
     ("bnbd_nsr_16379", "T0_N1"): 990,
     ("bnbd_nsr_19611", "T0_N1"): 910,
+    ("bnbd_nsr_16589", "T0_N3"): 1107
 }
 
 MATCH_TOL_SEC = 0.002   
@@ -58,10 +55,7 @@ def clip_end_sec(clip_epoch: int) -> float:
     return (clip_epoch - 1) * EPOCH_SEC
 
 
-# =============================================================================
 # HULPFUNCTIES
-# =============================================================================
-
 def load_fm_module(path: Path):
     """Importeert 1_feature_matrix.py."""
     if not path.exists():
@@ -134,10 +128,8 @@ def match_to_origin(orig_night: pd.DataFrame, new: pd.DataFrame) -> list:
     return matched
 
 
-# =============================================================================
-# HOOFDLOOP
-# =============================================================================
 
+# HOOFDLOOP
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--inspect", action="store_true", help="Alleen paden/aantallen tonen, niets berekenen of schrijven")

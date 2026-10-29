@@ -1,5 +1,4 @@
 """
-=============================================================================
 2.1_transform_features.py
 
 Log transformatie van de arousal feature matrix. 
@@ -14,7 +13,6 @@ Log transformatie van de arousal feature matrix.
 Gebruik:
   python 2.1_transform_features.py
   python 2.1_transform_features.py --input <path> --output-dir <folder>
-=============================================================================
 """
 
 import argparse
@@ -27,10 +25,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy.stats import skew
 
-# =============================================================================
-# CONFIGURATIE
-# =============================================================================
 
+# CONFIGURATIE
 DEFAULT_INPUT = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info\arousal_feature_matrix_FILTERED.csv"
 )
@@ -47,7 +43,6 @@ METADATA_COLS = [
 ]
 
 # Eventueel om nachten met slechte kwaliteit weg te laten.
-
 EXCLUDE_NIGHTS: list[tuple[str, str]] = [ ]
 
 # Features that are NOT transformed 
@@ -63,7 +58,6 @@ BANDS: list[tuple[str, str]] = [
 ]
 
 # Labels en units voor de non-spectral features.
-# feature: (panel label, x-axis label on the original scale)
 FEATURE_LABELS: dict[str, tuple[str, str]] = {
     "duration_sec":  ("Duration", "Duration (s)"),
     "motion_rms":    ("Motion RMS", "RMS Acceleration (g)"),
@@ -75,10 +69,8 @@ FEATURE_LABELS: dict[str, tuple[str, str]] = {
 DISPLAY_QUANTILE = 0.99
 N_BINS = 40
 
-# =============================================================================
-# APA 7 FIGURE STYLE 
-# =============================================================================
 
+# APA 7 FIGURE 
 FIG_DPI = 300
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
@@ -111,10 +103,8 @@ COLOR_FILL = "#C8C8C8"
 COLOR_EDGE = "#4D4D4D"     
 COLOR_REF = "#8C8C8C"      
 
-# =============================================================================
-# STEP 1: LOADING
-# =============================================================================
 
+# STEP 1: LOADING
 def load_feature_matrix(path: Path) -> pd.DataFrame:
     """Reads the feature matrix."""
     df = pd.read_csv(path, sep=None, engine="python")
@@ -176,10 +166,8 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if c not in METADATA_COLS]
 
 
-# =============================================================================
-# STEP 2: DISTRIBUTION PLOTS (before/after transformation)
-# =============================================================================
 
+# STEP 2: DISTRIBUTION PLOTS (before/after transformation)
 def _skew_or_nan(vals: pd.Series) -> float:
     vals = vals.replace([np.inf, -np.inf], np.nan).dropna()
     return skew(vals) if len(vals) >= 3 else np.nan
@@ -325,10 +313,7 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
     print(f"Distribution figure saved: {out_path}")
 
 
-# =============================================================================
 # STEP 3: TRANSFORMATION 
-# =============================================================================
-
 def classify_transform_columns(feature_cols: list[str]) -> tuple[list[str], list[str]]:
     """Splits the features into log_cols (-> ln) and untouched_cols (FORCE_UNTOUCHED_COLS)."""
     untouched = [c for c in feature_cols if c in FORCE_UNTOUCHED_COLS]
@@ -378,10 +363,7 @@ def apply_log_transform(df: pd.DataFrame, log_cols: list[str], untouched_cols: l
     return out, pd.DataFrame(choices)
 
 
-# =============================================================================
-# MAIN
-# =============================================================================
-
+# MAIn
 def run(df: pd.DataFrame, feature_cols: list[str], output_dir: Path,
         nights_excluded: bool) -> pd.DataFrame:
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,4 @@
 """
-=============================================================================
 1.3_feature_summary.py
 
 Maakt een samenvattende tabel van de featurematrix. 
@@ -25,7 +24,6 @@ Gebruik:
 Met --input wordt de naam van het input-bestand aan de output toegevoegd,
 zodat de standaard-samenvatting niet overschreven wordt:
   ..._FILTERED.csv > arousal_feature_SUMMARY_FILTERED.csv
-=============================================================================
 """
 
 import argparse
@@ -34,25 +32,21 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# =============================================================================
-# CONFIGURATIE
-# =============================================================================
 
+# CONFIGURATIE
 EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents"
                   r"\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
 
-INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_ORIGIN_clipped.csv"
-OUTPUT_FILE = EVENTS_DIR / "arousal_feature_ORIGIN_clipped_SUMMARY.csv"
+INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_FILTERED.csv"
+OUTPUT_FILE = EVENTS_DIR / "arousal_feature_FILTERED_SUMMARY.csv"
 
 NON_FEATURE_COLUMNS = [
     "subject_id", "group", "night_id", "stage_rk", "event_idx",
     "start_sec", "end_sec",
 ]
 
-# =============================================================================
-# SAMENVATTING
-# =============================================================================
 
+# SAMENVATTINg
 def load_feature_matrix(path: Path) -> pd.DataFrame:
     """Leest de featurematrix in. """
     df = pd.read_csv(path, sep=None, engine="python")

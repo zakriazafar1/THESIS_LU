@@ -1,5 +1,4 @@
 """
-=============================================================================
 3.1_correlation.py
 
 Correlation check on the scaled arousal feature matrix
@@ -28,7 +27,6 @@ Figures in APA 7 style.
 Usage:
   python 3.1_correlation.py
   python 3.1_correlation.py --input path/to/other_scaled.csv
-=============================================================================
 """
 
 import argparse
@@ -43,17 +41,13 @@ import seaborn as sns
 from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
 from scipy.spatial.distance import squareform
 
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
 
+# CONFIGURATION
 INPUT_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled"
-)
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled")
 
 OUTPUT_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\correlation"
-)
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\3. feature selection\correlation")
 
 DEFAULT_INPUT = INPUT_DIR / "arousal_feature_matrix_scaled.csv"
 
@@ -71,10 +65,7 @@ GROUP_THRESHOLD = 0.70      # within a group: every pair |corr| >= this value
 
 FIG_DPI = 300
 
-# =============================================================================
-# APA 7 FIGURE STYLE
-# =============================================================================
-
+# APA 7 FIGURE 
 TEXT_COLOR = "#000000"
 AXIS_COLOR = "#000000"
 CUTOFF_COLOR = "#C0392B"
@@ -149,10 +140,7 @@ def save_figure(fig, out_path: Path) -> None:
     plt.close(fig)
 
 
-# =============================================================================
 # STEP 1: LOADING
-# =============================================================================
-
 def load_scaled_matrix(path: Path) -> pd.DataFrame:
     """
     Reads the scaled feature matrix.
@@ -195,10 +183,8 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if c not in METADATA_COLS]
 
 
-# =============================================================================
-# STEP 2: COMPUTING CORRELATIONS
-# =============================================================================
 
+# STEP 2: COMPUTING CORRELATIONS
 def compute_corr(df: pd.DataFrame, feature_cols: list[str], method: str) -> pd.DataFrame:
     """Correlation matrix ('pearson' or 'spearman'), pairwise, NaN/inf treated as missing."""
     sub = df[feature_cols].replace([np.inf, -np.inf], np.nan)
@@ -284,10 +270,8 @@ def list_divergent_pairs(pairs: pd.DataFrame, threshold: float) -> pd.DataFrame:
     return out.round(4).reset_index(drop=True)
 
 
-# =============================================================================
-# STEP 3: IDENTIFYING CORRELATION GROUPS
-# =============================================================================
 
+# STEP 3: IDENTIFYING CORRELATION GROUPS
 def find_corr_groups(corr: pd.DataFrame, threshold: float) -> pd.Series:
     """
     Hierarchical clustering on distance 0.3, complete linkage, cut at
@@ -385,10 +369,8 @@ def plot_dendrogram(Z, labels: list[str], threshold: float, out_path: Path) -> N
     print(f"Dendrogram saved: {out_path} (+ .pdf)")
 
 
-# =============================================================================
-# MAIN
-# =============================================================================
 
+# MAIN
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT,

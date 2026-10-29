@@ -33,9 +33,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# ---------------------------------------------------------------------------
+
 # Standaardpaden
-# ---------------------------------------------------------------------------
 BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
 DEFAULT_INPUT = BASE / "reduced feature matrix" / "arousal_features_reduced_scaled.csv"
 DEFAULT_OUTDIR = BASE / "centered feature matrix"
@@ -101,7 +100,7 @@ def main() -> None:
     group_center = X.groupby([df[k] for k in keys]).transform(args.stat)
     Xc = X - group_center
 
-    # Rapport: welk deel van de variantie zat tussen groepen?
+    # Welk deel van de variantie zat tussen groepen?
     var_total = X.var(ddof=1)
     var_within = Xc.var(ddof=1)
     report = pd.DataFrame({

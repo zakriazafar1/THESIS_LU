@@ -29,17 +29,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# ============================================================
+
 # CONFIG
-# ============================================================
 BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
 
-# FEATURES_CSV = BASE / "1. feature matrices" / ".feature info" / "arousal_feature_matrix_ORIGIN_clipped.csv"
-# OUT_DIR      = BASE / ".data descriptives" / "full data" / "nights overview" 
+# FEATURES_CSV = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"
+# OUT_DIR = BASE / ".data descriptives" / "full data" / "nights overview" 
 
-FEATURES_CSV      = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"
 ORIG_FEATURES_CSV = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"  
-OUT_DIR = BASE / ".data descriptives" / "reduced data" / "nights overview"
+OUT_DIR = BASE / ".data descriptives" / "reduced data" / "nights overview 2"
+FEATURES_CSV = BASE / "1. feature matrices" / ".feature info" / "arousal_feature_matrix_FILTERED.csv"
+
 
 RAW_ROOT = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
 GROUPS   = ["NSR"]
@@ -51,6 +51,7 @@ CLIP_NIGHTS: dict[tuple[str, str], int] = {
     ("bnbd_nsr_17598", "T0_N1"): 1011,
     ("bnbd_nsr_16379", "T0_N1"): 990,
     ("bnbd_nsr_19611", "T0_N1"): 910,
+    ("bnbd_nsr_16589", "T0_N3"): 1107
 }
 
 # Stadiumcodes -
@@ -69,7 +70,7 @@ FM_ONSET_COL   = "start_sec"
 ONSET_UNIT_S   = 1.0       
 ORIG_DURATION_COL = "duration_sec"  
 
-OUT_DIR = BASE / "nights overview"
+OUT_DIR = BASE / "nights overview 2"
 OUT_SEP, OUT_DECIMAL = ";", ","
 N_DECIMALS = 2                                 
 DECIMALS_OVERRIDE = {"arousals_per_min_tst": 3}  
@@ -83,9 +84,8 @@ FEATURE_COLS = ["n_arousals", "arousal_index_per_h_tst", "arousals_per_min_tst",
                 "arousal_dur_mean_s", "arousal_dur_median_s",
                 "arousal_time_total_min", "arousal_time_pct_tst"]
 
-# ============================================================
+
 # HELPERS
-# ============================================================
 SUBJECT_CANDIDATES = ["subject", "subject_id", "subj", "participant", "participant_id", "pp", "ppn", "id"]
 NIGHT_CANDIDATES   = ["night", "night_id", "nacht", "recording", "session", "edf", "file", "filename"]
 ONSET_CANDIDATES   = ["onset_s", "onset", "start_s", "start", "t_start", "onset_sec", "event_start"]
@@ -220,9 +220,9 @@ def load_hypnogram(path: Path) -> np.ndarray:
     return np.array([to_label(v) for v in col])
 
 
-# ============================================================
-# MATEN PER NACHT
-# ============================================================
+
+# STATS PER NACHT
+
 def sleep_metrics(labels: np.ndarray) -> dict:
     ep_min = EPOCH_S / 60
     n = len(labels)
@@ -348,9 +348,8 @@ def attach_duration(fm, subj_col, night_col, onset_col):
     return fm, "_dur_s"
 
 
-# ============================================================
+
 # MAIN
-# ============================================================
 def main(inspect_only=False):
     fm = read_csv_auto(FEATURES_CSV)
     subj_col = find_col(fm, SUBJECT_CANDIDATES, FM_SUBJECT_COL, label="subject")

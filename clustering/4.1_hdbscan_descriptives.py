@@ -1,5 +1,4 @@
 """
-=============================================================================
 4.1_hdbscan_descriptives.py
 
 Descriptive statistics of the HDBSCAN clusters on the ORIGINAL (untransformed,
@@ -28,7 +27,6 @@ Usage:
   python 4.1_hdbscan_descriptives.py            # all four runs
   python 4.1_hdbscan_descriptives.py --tags whitened_single  # one or more runs
   python 4.1_hdbscan_descriptives.py --tags my_run --labels path\\to\\hdbscan_final_labels.csv
-=============================================================================
 """
 
 import argparse
@@ -37,10 +35,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
 
+# CONFIGURATIOn
 BASE = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2"
 )
@@ -65,10 +61,7 @@ FEATURES = {
 }
 DECIMALS = 2
 
-# =============================================================================
 # LOADING
-# =============================================================================
-
 def read_csv_robust(path: Path) -> pd.DataFrame:
     """CSV with automatic delimiter detection and fallback to decimal=','."""
     if not path.exists():
@@ -117,10 +110,8 @@ def link_labels(labels: pd.DataFrame, original: pd.DataFrame) -> pd.DataFrame:
     return merged.drop(columns="key")
 
 
-# =============================================================================
-# DESCRIPTIVES
-# =============================================================================
 
+# DESCRIPTIVES
 def groups_in_order(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
     """Clusters (by number), then noise (if any), then all events."""
     out = [(f"Cluster {c}", df[df["cluster"] == c])
@@ -164,11 +155,7 @@ def table_note(df: pd.DataFrame, tag: str) -> str:
         "because the clusters were derived from the same data."
     )
 
-
-# =============================================================================
 # ONE RUN
-# =============================================================================
-
 def run_one(tag: str, labels_path: Path, original: pd.DataFrame, out_root: Path) -> None:
     print("\n" + "=" * 70)
     print(f"RUN: {tag}")
@@ -206,11 +193,7 @@ def run_one(tag: str, labels_path: Path, original: pd.DataFrame, out_root: Path)
     print(f"\nSaved in {out_dir}: {xlsx}cluster_descriptives_table.csv, "
           "cluster_descriptives_long.csv, table_note.txt")
 
-
-# =============================================================================
 # MAIN
-# =============================================================================
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)

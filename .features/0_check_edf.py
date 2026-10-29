@@ -1,14 +1,12 @@
 """
-=============================================================================
-.check_edf.py 
+0_check_edf.py 
 
 Print per kanaal in een EDF-bestand de eenheid (physical_dimension) 
 en het bereik (physical_min/max, digital_min/max).
 
 Gebruik:
-  python .check_edf.py --edf "<pad naar .edf>"
-  python .check_edf.py --edf "<pad naar .edf>" --channels dX EEG-R --preview 5
-=============================================================================
+  python 0_check_edf.py --edf "<pad naar .edf>"
+  python 0_check_edf.py --edf "<pad naar .edf>" --channels dX EEG-R --preview 5
 """
 
 import argparse

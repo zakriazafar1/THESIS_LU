@@ -35,17 +35,13 @@ import numpy as np
 import pandas as pd
 from sklearn.mixture import GaussianMixture
 
-# ---------------------------------------------------------------------------
 # Default paths
-# ---------------------------------------------------------------------------
 BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
 DEFAULT_INPUT = BASE / "reduced feature matrix" / "arousal_features_reduced_scaled.csv"
 DEFAULT_OUTDIR = BASE / "4. clustering" / "2. GMM"
 DEFAULT_TAG = "features_8"
 
-# ---------------------------------------------------------------------------
 # Config
-# ---------------------------------------------------------------------------
 DEFAULT_FEATURES = [
     "mean_delta_ratio",
     "mean_theta_ratio",
@@ -94,9 +90,7 @@ def write_csv(frame: pd.DataFrame, path: Path, **kwargs) -> None:
     frame.to_csv(ensure_parent(path), **kwargs)
 
 
-# ---------------------------------------------------------------------------
 # Data
-# ---------------------------------------------------------------------------
 def load_features(path: Path, cols_arg: str | None = None) -> pd.DataFrame:
     """Reads the CSV and decides which columns to cluster on (sets the global FEATURES):
     1. --cols if given (comma-separated);
@@ -138,9 +132,7 @@ def inspect(df: pd.DataFrame) -> None:
     print(df[FEATURES].skew().round(2).to_string())
 
 
-# ---------------------------------------------------------------------------
 # Measures
-# ---------------------------------------------------------------------------
 def entropy_terms(resp: np.ndarray) -> float:
     """Total classification entropy EN = -sum_i sum_k tau_ik * log(tau_ik)."""
     r = np.clip(resp, 1e-300, 1.0)
@@ -194,9 +186,7 @@ def fit_one_k(X: np.ndarray, k: int) -> tuple[GaussianMixture, dict, list]:
     return gmm, row, comps
 
 
-# ---------------------------------------------------------------------------
-# Figures (APA style)
-# ---------------------------------------------------------------------------
+# Figures
 def apa_style():
     import matplotlib
     matplotlib.use("Agg")
@@ -253,7 +243,7 @@ def plot_model_selection(res: pd.DataFrame, out_base: Path) -> None:
 
     inner = 7  # font size inside the plotting area 
 
-    # Two panels of identical size and margins 
+    # Two panels 
     fig = plt.figure(figsize=(6.9, 2.9))
     w, h, bottom = 0.355, 0.74, 0.17
     axA = fig.add_axes([0.095, bottom, w, h])
@@ -337,9 +327,7 @@ def plot_component_profiles(df: pd.DataFrame, labels: np.ndarray, weights: np.nd
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
 # Fit all models for one input
-# ---------------------------------------------------------------------------
 def run_gmm(tag: str, X: np.ndarray, df: pd.DataFrame, outdir: Path, input_path: Path) -> None:
     cols = list(FEATURES)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -414,9 +402,7 @@ def run_gmm(tag: str, X: np.ndarray, df: pd.DataFrame, outdir: Path, input_path:
           "interpret K together with ICL and the certainty measures.")
 
 
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 def main() -> None:
     global K_MAX, N_INIT, SEED
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

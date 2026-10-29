@@ -12,7 +12,7 @@ Outputs (in OUT_DIR):
 
 Gebruik:
   python subjects_overview.py --inspect   # alleen kolommen + gedetecteerde ID-kolommen
-  python subjects_overview.py       # volledige run
+  python subjects_overview.py  # volledige run
 """
 
 import argparse
@@ -22,17 +22,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# ============================================================
+
 # CONFIG
-# ============================================================
 BASE = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
 
 FEATURES_CSV = BASE / "reduced feature matrix" / "arousal_features_reduced_original.csv"
 OUT_DIR = BASE / ".data descriptives" / "reduced data" / "subjects overview"
+SUBJECTS_CSV = BASE / ".data descriptives" / "subjects_timepoints_total(in).csv"
 
 # FEATURES_CSV = BASE / "1. feature matrices" / ".feature info" / "arousal_feature_matrix_ORIGIN_clipped.csv"
-SUBJECTS_CSV = BASE / ".data descriptives" / "subjects_timepoints_total(in).csv"
-# OUT_DIR      = BASE / ".data descriptives" / "full data" / "subjects overview" 
+# OUT_DIR = BASE / ".data descriptives" / "full data" / "subjects overview" 
 
 FM_SUBJECT_COL = "subject_id"  
 FM_NIGHT_COL   = "night_id"  
@@ -47,9 +46,8 @@ MATCH_ON_DIGITS = True
 
 OUT_SEP, OUT_DECIMAL = ";", ","
 
-# ============================================================
+
 # HELPERS
-# ============================================================
 SUBJECT_CANDIDATES = ["subject", "subject_id", "subj", "participant", "participant_id",
                       "pp", "ppn", "id", "record_id", "castor_id"]
 NIGHT_CANDIDATES   = ["night", "night_id", "nacht", "session", "recording", "edf",
@@ -113,9 +111,8 @@ def describe(series: pd.Series, name: str, decimals=1) -> dict:
     }
 
 
-# ============================================================
+
 # MAIN
-# ============================================================
 def main(inspect_only=False):
     fm = read_csv_auto(FEATURES_CSV)
     si = read_csv_auto(SUBJECTS_CSV)

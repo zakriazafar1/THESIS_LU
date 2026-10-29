@@ -1,5 +1,4 @@
 """
-=============================================================================
 1.4_visualise_features.py
 
 Figuren van de verdeling van elke feature in de feature matrix.
@@ -14,7 +13,6 @@ Output: feature_distributions_eeg.png / .pdf & feature_distributions_other.png /
 Usage
   python 1.4_visualise_features.py
   python 1.4_visualise_features.py --input "path/to/arousal_feature_matrix_FILTERED.csv"
-=============================================================================
 """
 
 import argparse
@@ -29,10 +27,8 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator, NullLocator
 
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
 
+# CONFIGURATION
 EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
 
 INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_FILTERED.csv"
@@ -57,11 +53,11 @@ BANDS = {
 
 # EEG kolommen
 EEG_COLUMNS = [
-    ("Mean Amplitude",                ["L_{b}_ratio", "R_{b}_ratio"],           True),
-    ("Peak Amplitude",                ["L_{b}_peak_ratio", "R_{b}_peak_ratio"], True),
-    ("L/R Average",                   ["mean_{b}_ratio"],                       False),
+    ("Mean Amplitude", ["L_{b}_ratio", "R_{b}_ratio"],           True),
+    ("Peak Amplitude", ["L_{b}_peak_ratio", "R_{b}_peak_ratio"], True),
+    ("L/R Average", ["mean_{b}_ratio"], False),
 ]
-EEG_XLABEL = "Event Ratio"   # one shared label under panel A
+EEG_XLABEL = "Event Ratio"   
 
 # Andere features 
 OTHER_FEATURES = {
@@ -141,10 +137,8 @@ plt.rcParams.update({
     "svg.fonttype": "none",
 })
 
-# =============================================================================
-# READING
-# =============================================================================
 
+# READING
 def load_feature_matrix(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, sep=None, engine="python")
     df.columns = [str(c).strip() for c in df.columns]
@@ -158,10 +152,7 @@ def load_feature_matrix(path: Path) -> pd.DataFrame:
     return df.replace([np.inf, -np.inf], np.nan)
 
 
-# =============================================================================
 # HELPERS
-# =============================================================================
-
 def clean(values: pd.Series, positive: bool = False) -> np.ndarray:
     x = values.dropna().to_numpy(dtype=float)
     return x[x > 0] if positive else x
@@ -231,10 +222,7 @@ def median_label(ax, values: list[tuple[str, float]]):
             line.set_ydata([0, 1.02 / factor])
 
 
-# =============================================================================
 # FIGURE
-# =============================================================================
-
 def new_figure(height_in: float):
     fig = plt.figure(figsize=(FIG_WIDTH_IN, height_in), layout="constrained")
     # Whitespace: *_pad = margin around each panel (inches), *space = gap between panels (fraction)
@@ -342,10 +330,8 @@ def build_other_figure(df: pd.DataFrame, other_cols: list[str], log_lines: list[
     return sub_oth
 
 
-# =============================================================================
-# MAIN
-# =============================================================================
 
+# MAIN
 def input_tag(path: Path) -> str:
     prefix = "arousal_feature_matrix_"
     return path.stem[len(prefix):] if path.stem.startswith(prefix) else path.stem

@@ -1,5 +1,4 @@
 """
-=============================================================================
 1_feature_matrix.py
 
 Bouwt een featurematrix (1 rij per gescoord arousal-event) vanuit:
@@ -43,7 +42,6 @@ Gebruik:
   python 1_feature_matrix.py --inspect --limit 5     # eerst checken
   python 1_feature_matrix.py --limit 5               # test op 5 nachten
   python 1_feature_matrix.py                         # volledige run
-=============================================================================
 """
 
 import argparse
@@ -59,10 +57,7 @@ from scipy.signal import butter, filtfilt, hilbert, iirnotch, sosfiltfilt
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 mne.set_log_level("ERROR")
 
-# =============================================================================
 # CONFIGURATIE
-# =============================================================================
-
 RAW_ROOT   = Path(r"\\vs03.herseninstituut.knaw.nl\VS03-SandC-2\raw\bnbd\Data\eeg")
 GROUPS     = ["NSR", "Prezens", "SAV"]
 EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices")
@@ -103,9 +98,7 @@ FEATURE_COLUMN_ORDER = (
     + ["motion_rms", "oxy_amp_ratio"]
 )
 
-# =============================================================================
-# SECTIE 1: NACHTEN VINDEN 
-# =============================================================================
+# STAP 1: NACHTEN VINDEN 
 
 def find_night_dirs(raw_root: Path) -> list[Path]:
     """ 
@@ -140,7 +133,7 @@ def parse_ids(night_dir: Path) -> dict:
         group = m.group(2).upper()
         night_id = m.group(3)
     else:
-        # Fallback: minder strikt, gewoon op underscores splitsen
+        # Fallback
         parts = stem.split("_")
         subject_id = "_".join(parts[:3])
         night_id = "_".join(parts[3:])
@@ -149,9 +142,7 @@ def parse_ids(night_dir: Path) -> dict:
     return {"subject_id": subject_id, "night_id": night_id, "group": group, "stem": stem}
 
 
-# =============================================================================
-# SECTIE 2: EVENTS EN HYPNOGRAM INLADEN
-# =============================================================================
+# STAP 2: EVENTS EN HYPNOGRAM INLADEN
 
 def find_events_file(arch_dir: Path, stem: str) -> Path | None:
     """Zoekt het bestand met Lucija's gescoorde arousal-events."""
@@ -231,9 +222,8 @@ def get_stage_at(hypnogram: pd.DataFrame | None, t_sec: float):
     return hypnogram["stage_rk"].iloc[idx]
 
 
-# =============================================================================
-# SECTIE 3: EDF KANALEN INLADEN
-# =============================================================================
+
+# STAP 3: EDF KANALEN INLADEN
 
 def get_edf_dir(night_dir: Path, stem: str) -> Path:
     """
@@ -331,10 +321,7 @@ def load_night_signals(night_dir: Path, stem: str) -> dict:
     return signals
 
 
-# =============================================================================
-# SECTIE 4: FEATURES PER EVENT BEREKENEN
-# =============================================================================
-
+# STAP 4: FEATURES PER EVENT BEREKENEN
 def compute_night_band_envelopes(signals: dict) -> dict:
     """
     Berekent voor elk EEG-kanaal en elke band de band-envelope over de HELE nacht,
@@ -447,10 +434,7 @@ def extract_event_features(signals: dict, start_sec: float, end_sec: float,
     return feats
 
 
-# =============================================================================
-# SECTIE 5: HOOFDLOOP
-# =============================================================================
-
+# STAP 5: HOOFDLOOP
 def process_night(night_dir: Path, ids: dict, inspect: bool = False,
                    start_idx: int = 0) -> pd.DataFrame | None:
     """

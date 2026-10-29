@@ -1,5 +1,4 @@
 """
-=============================================================================
 2.2_scale_features.py
 
 Standardisation (z-score) of the transformed arousal feature matrix.
@@ -16,7 +15,6 @@ Steps:
 Usage:
   python 2.2_scale_features.py
   python 2.2_scale_features.py --input <path> --output-dir <folder>
-=============================================================================
 """
 
 import argparse
@@ -31,17 +29,13 @@ from matplotlib.patches import Patch
 from scipy.stats import skew
 from sklearn.preprocessing import StandardScaler
 
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
 
+# CONFIGURATION
 INPUT_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\transformed"
-)
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\transformed")
 
 OUTPUT_DIR = Path(
-    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled"
-)
+    r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\2. preprocessing\scaled")
 
 DEFAULT_INPUT = INPUT_DIR / "arousal_feature_matrix_transformed.csv"
 
@@ -69,10 +63,8 @@ FEATURE_LABELS: dict[str, str] = {
 
 N_BINS = 40
 
-# =============================================================================
-# APA 7 FIGURE STYLE 
-# =============================================================================
 
+# APA 7 FIGURE STYLE 
 FIG_DPI = 300
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
@@ -111,10 +103,8 @@ COLOR_REF = "#8C8C8C"
 
 Z_LABEL = r"$\mathit{z}$ score"
 
-# =============================================================================
-# STEP 1: LOADING
-# =============================================================================
 
+# STEP 1: LOADIng
 def load_transformed_matrix(path: Path) -> pd.DataFrame:
     """Reads the transformed feature matrix. """
     if not path.exists():
@@ -156,10 +146,8 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if c not in METADATA_COLS]
 
 
-# =============================================================================
-# STEP 2: STANDARDSCALER
-# =============================================================================
 
+# STEP 2: STANDARDSCALER
 def scale_with_standard_scaler(df: pd.DataFrame, feature_cols: list[str]
                                ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -210,10 +198,8 @@ def check_scaling(df_scaled: pd.DataFrame, feature_cols: list[str], tol: float =
     return check
 
 
-# =============================================================================
-# STEP 3: FIGURE (APA 7)
-# =============================================================================
 
+# STEP 3: FIGURE (APA 7)
 def _finite(vals: pd.Series) -> np.ndarray:
     return vals.replace([np.inf, -np.inf], np.nan).dropna().to_numpy()
 
@@ -331,10 +317,7 @@ def plot_distributions(df: pd.DataFrame, feature_cols: list[str], out_path: Path
     print(f"Distribution figure saved: {out_path}")
 
 
-# =============================================================================
 # MAIN
-# =============================================================================
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT,

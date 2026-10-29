@@ -1,5 +1,4 @@
 """
-=============================================================================
 1.2_clean_feature_matrix.py
 
 Maakt de definitieve featurematrix voor de analyse:
@@ -21,7 +20,6 @@ Output: arousal_feature_matrix_FILTERED.csv
 
 Gebruik:
   python 1.2_clean_feature_matrix.py
-=============================================================================
 """
 
 from pathlib import Path
@@ -29,13 +27,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# =============================================================================
 # CONFIGURATIE
-# =============================================================================
-
 EVENTS_DIR = Path(r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2\1. feature matrices\.feature info")
 
-INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_ORIGIN_clipped.csv"
+INPUT_FILE = EVENTS_DIR / "arousal_feature_matrix_ORIGIN_corrected_clipped.csv"
 OUTPUT_FILE_FILTERED = EVENTS_DIR / "arousal_feature_matrix_FILTERED.csv"
 
 # Duur-filter 
@@ -49,12 +44,10 @@ NON_FEATURE_COLUMNS = [
     "subject_id", "group", "night_id", "stage_rk", "event_idx",
     "start_sec", "end_sec",
 ]
-DROP_COLUMNS = ["sec_prev_event"]   # wordt niet gebruikt -> uit de matrix
+DROP_COLUMNS = ["sec_prev_event"]   # wordt niet gebruikt 
 
-# =============================================================================
+
 # INLEZEN
-# =============================================================================
-
 def load_feature_matrix(path: Path) -> pd.DataFrame:
     """Detecteert komma/puntkomma-scheiding en zet decimale komma's om."""
     df = pd.read_csv(path, sep=None, engine="python")
@@ -76,10 +69,7 @@ def indent(text: str, prefix: str = "    ") -> str:
     return "\n".join(prefix + line for line in text.splitlines())
 
 
-# =============================================================================
 # HOOFDLOOP
-# =============================================================================
-
 def main():
     if not INPUT_FILE.exists():
         print(f"Featurematrix niet gevonden: {INPUT_FILE}")

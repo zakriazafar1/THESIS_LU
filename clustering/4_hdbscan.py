@@ -94,9 +94,8 @@ try:
 except ImportError:
     sys.exit("hdbscan is not installed:  pip install hdbscan")
 
-# =============================================================================
+
 # CONFIGURATION
-# =============================================================================
 BASE = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
 # PCA_DIR = BASE / r"4. clustering\3. pca"
@@ -108,8 +107,8 @@ PCA_DIR = BASE / r"5. clustering_centered/2. pca centered"
 REDUCED_INPUT = BASE / r"centered feature matrix\arousal_features_reduced_scaled_centered_participant.csv"
 OUTPUT_DIR = BASE / r"5. clustering_centered/3. hdbscan centered"
 
-# Number of PCs in the PCA score files (pca_scores_<k>pc_*.csv).
-# None = detect automatically (if there is exactly one file per variant).
+# Number of PCs in the PCA score files 
+# None = detect automatically 
 PCA_N_COMPONENTS = 5 
 
 # The three runs
@@ -143,7 +142,7 @@ METADATA_COLS = [
     "cluster", "membership_probability", "outlier_score",
 ]
 
-# Axis labels: interpretation per PC (based on the loadings from 3_pca.py)
+# Axis labels: PC (based on the loadings from 3_pca.py)
 PC_LABELS = {
     "PC1": "PC1: overall spectral activation",
     "PC2": "PC2: event duration",
@@ -165,10 +164,7 @@ FEATURE_PLOT_PAIRS = [("mean_theta_ratio", "duration_sec"),
 
 FIG_DPI = 300
 
-# =============================================================================
-# APA 7 FIGURE STYLE
-# =============================================================================
-
+# APA 7 FIGURE
 # Fixed colour + marker per CLUSTER NUMBER 
 CLUSTER_COLORS = ["#2a78d6",  # 0 blue
                   "#1baf7a",  # 1 green
@@ -215,10 +211,7 @@ def save_figure(fig, out_path: Path) -> None:
     plt.close(fig)
 
 
-# =============================================================================
 # STEP 1: CONFIGURATION
-# =============================================================================
-
 def read_csv_robust(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"{path} does not exist -- run 3_pca.py / 3.3_reduce_features.py first.")
@@ -305,10 +298,7 @@ def build_plot_only_runs(args, runs_explicit: bool) -> list[tuple[str, None]]:
     return [(t, None) for t in tags]
 
 
-# =============================================================================
 # STEP 2: HDBSCAN
-# =============================================================================
-
 def fit_hdbscan(X: np.ndarray, mcs: int, ms: int, method: str,
                 allow_single: bool, validity: bool = True):
     clusterer = hdbscan.HDBSCAN(
@@ -368,10 +358,7 @@ def rank_grid(grid: pd.DataFrame) -> pd.DataFrame:
                             ).reset_index(drop=True)
 
 
-# =============================================================================
 # STEP 3: STABILITY (subject-level split)
-# =============================================================================
-
 def stability(X: np.ndarray, subjects: np.ndarray, mcs: int, ms: int, method: str,
               allow_single: bool, n_resamples: int, frac: float, seed: int) -> dict:
     """
@@ -400,10 +387,7 @@ def stability(X: np.ndarray, subjects: np.ndarray, mcs: int, ms: int, method: st
     }
 
 
-# =============================================================================
 # STEP 4: FINAL CONFIGURATION
-# =============================================================================
-
 def final_fit(df: pd.DataFrame, pc_cols: list[str], X: np.ndarray,
               mcs: int, ms: int, method: str, allow_single: bool,
               out_dir: Path) -> dict:
@@ -449,10 +433,8 @@ def final_fit(df: pd.DataFrame, pc_cols: list[str], X: np.ndarray,
             "final_cluster_sizes": info["cluster_sizes"]}
 
 
-# =============================================================================
-# STEP 5: PLOTS
-# =============================================================================
 
+# STEP 5: PLOTS
 def _style_axes(ax) -> None:
     ax.spines[["top", "right"]].set_visible(False)
     ax.tick_params(colors=TEXT_COLOR, labelsize=8)
@@ -633,10 +615,7 @@ def make_plots(df: pd.DataFrame, pc_cols: list[str], out_dir: Path) -> None:
     plot_pairs(df, pc_cols, out_dir)
 
 
-# =============================================================================
 # ONE RUN
-# =============================================================================
-
 def run_one(args, tag: str, input_path: Path) -> dict:
     print("\n" + "=" * 78)
     print(f"RUN: {tag}" + ("   (plot only)" if args.plot_only
@@ -731,10 +710,7 @@ def run_one(args, tag: str, input_path: Path) -> dict:
     }
 
 
-# =============================================================================
 # MAIN
-# =============================================================================
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
