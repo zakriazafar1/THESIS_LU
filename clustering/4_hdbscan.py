@@ -98,14 +98,14 @@ except ImportError:
 # CONFIGURATION
 BASE = Path(
     r"C:\Users\zafar\OneDrive - Netherlands Institute for Neuroscience\Documents\THESIS_OUTPUTS\PROJECT 2")
-# PCA_DIR = BASE / r"4. clustering\3. pca"
-# REDUCED_INPUT = BASE / r"reduced feature matrix\arousal_features_reduced_scaled.csv"
-# OUTPUT_DIR = BASE / r"4. clustering\4. hdbscan"
+PCA_DIR = BASE / r"4. clustering\3. pca"
+REDUCED_INPUT = BASE / r"reduced feature matrix\arousal_features_reduced_scaled.csv"
+OUTPUT_DIR = BASE / r"4. clustering\4. hdbscan"
 
 # PATHS TO CENTERED DATA 
-PCA_DIR = BASE / r"5. clustering_centered/2. pca centered"
-REDUCED_INPUT = BASE / r"centered feature matrix\arousal_features_reduced_scaled_centered_participant.csv"
-OUTPUT_DIR = BASE / r"5. clustering_centered/3. hdbscan centered"
+# PCA_DIR = BASE / r"5. clustering_centered/2. pca centered"
+# REDUCED_INPUT = BASE / r"centered feature matrix\arousal_features_reduced_scaled_centered_participant.csv"
+# OUTPUT_DIR = BASE / r"5. clustering_centered/3. hdbscan centered"
 
 # Number of PCs in the PCA score files 
 # None = detect automatically 
@@ -144,10 +144,10 @@ METADATA_COLS = [
 
 # Axis labels: PC (based on the loadings from 3_pca.py)
 PC_LABELS = {
-    "PC1": "PC1: overall spectral activation",
+    "PC1": "PC1: general spectral intensity",
     "PC2": "PC2: event duration",
     "PC3": "PC3: contrast PPG vs. duration",
-    "PC4": "PC4: head movement",
+    "PC4": "PC4: constrast PPG vs. head movement",
     "PC5": "PC5: contrast slow vs. fast frequencies",
     "mean_delta_ratio": "Mean delta ratio ($z$)",
     "mean_theta_ratio": "Mean theta ratio ($z$)",
