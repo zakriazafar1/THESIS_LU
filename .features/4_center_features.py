@@ -14,16 +14,11 @@ Wat het script doet:
 5. Schrijft een kort rapport: per feature hoeveel variantie tussen groepen zat
    (en dus is verwijderd). 
 
-Gebruik
--------
+Gebruik:
     python 4_center_features.py                         # per deelnemer, gemiddelde
     python 4_center_features.py --level night           # per nacht 
     python 4_center_features.py --stat median           # mediaan i.p.v. gemiddelde
     python 4_center_features.py --input X.csv --outdir Y
-
-Daarna bijvoorbeeld:
-    python 2_GMM.py --input "...\\arousal_features_reduced_scaled_centered_participant.csv" ^
-                    --outdir "...\\4. clustering\\GMM_centered_participant"
 """
 
 import argparse

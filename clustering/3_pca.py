@@ -1,5 +1,4 @@
 """
-=============================================================================
 3_pca.py
 
 PCA on the reduced, scaled arousal feature matrix
@@ -36,7 +35,6 @@ Usage:
   python 3_pca.py --whiten yes            # only with whitening
   python 3_pca.py --n-components 0.90     # as many PCs as needed for 90%
   python 3_pca.py --n-components 6        # fixed number of PCs 
-=============================================================================
 """
 
 import argparse
