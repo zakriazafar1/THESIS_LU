@@ -1,9 +1,7 @@
-# Python cache
 __pycache__/
 *.pyc
 
-# Editor settings
-vscode/
+.vscode/
 vscode/
 
 # Data and outputs (never commit participant data)
@@ -13,6 +11,5 @@ vscode/
 *.png
 *.pdf
 
-# OS files
 .DS_Store
 Thumbs.db
