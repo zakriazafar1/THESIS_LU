@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+
+.vscode/
+vscode/
+
+# Data and outputs
+*.edf
+*.csv
+*.xlsx
+*.png
+*.pdf
+
+# OS files
+.DS_Store
+Thumbs.db
