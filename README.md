@@ -9,7 +9,7 @@ This repository contains the analysis pipeline used to test whether expert-score
 
 Scripts are numbered in the order in which they are run.
 
-### `features/` – feature extraction and preprocessing
+### `1. features/` – feature extraction and preprocessing
 
 | Script | Description |
 |---|---|
@@ -25,7 +25,7 @@ Scripts are numbered in the order in which they are run.
 | `3.2_reduce_features.py` | Reduces the matrix to the 8 selected features |
 | `4_center_features.py` | Centers the scaled features within participants and re-standardizes them |
 
-### `clustering/` – clustering analyses
+### `2. clustering/` – clustering analyses
 
 | Script | Description |
 |---|---|
@@ -36,7 +36,7 @@ Scripts are numbered in the order in which they are run.
 | `4_hdbscan.py` | HDBSCAN with a parameter grid, ranked by relative validity and checked for stability |
 | `4.1_hdbscan_descriptives.py` | Descriptive statistics of the HDBSCAN clusters on the original features |
 
-### `descriptives/` – sample description
+### `3. descriptives/` – sample description
 
 | Script | Description |
 |---|---|
