@@ -1,4 +1,3 @@
-# THESIS_LU
-Thesis Leiden University - Zakria Zafar 
+# Arousal Subtypes
 
 Unsupervised clustering of arousal events.
