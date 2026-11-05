@@ -1,5 +1,5 @@
 # Do Sleep Arousals Form Distinct Subtypes?
-**An Exploratory Clustering Study in Adults with Insomnia Symptoms**
+**An Exploratory Unsupervised Clustering Study**
 
 ## Overview
 
