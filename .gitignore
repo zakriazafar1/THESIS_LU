@@ -3,7 +3,7 @@ __pycache__/
 *.pyc
 
 # Editor settings
-.vscode/
+vscode/
 vscode/
 
 # Data and outputs (never commit participant data)
