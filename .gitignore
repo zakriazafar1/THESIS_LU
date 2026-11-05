@@ -1,10 +1,12 @@
+# Python cache
 __pycache__/
 *.pyc
 
+# Editor settings
 .vscode/
 vscode/
 
-# Data and outputs
+# Data and outputs (never commit participant data)
 *.edf
 *.csv
 *.xlsx
