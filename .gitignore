@@ -4,13 +4,12 @@ __pycache__/
 .vscode/
 vscode/
 
-# Data and outputs
+# Data and outputs (never commit participant data)
 *.edf
 *.csv
 *.xlsx
 *.png
 *.pdf
 
-# OS files
 .DS_Store
 Thumbs.db
