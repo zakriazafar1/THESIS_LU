@@ -36,7 +36,7 @@ Scripts are numbered in the order in which they are run.
 | `4_hdbscan.py` | HDBSCAN with a parameter grid, ranked by relative validity and checked for stability |
 | `4.1_hdbscan_descriptives.py` | Descriptive statistics of the HDBSCAN clusters on the original features |
 
-### `3. descriptives/` – sample description
+### `3. descriptives/` sample description
 
 | Script | Description |
 |---|---|
